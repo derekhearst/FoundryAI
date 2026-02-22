@@ -1,0 +1,258 @@
+/* ==========================================================================
+   Embedding Service - Manages RAG pipeline: chunking, indexing, retrieval
+   ========================================================================== */
+
+import { openRouterService } from './openrouter-service'
+import { VectorStore, type VectorEntry, type IndexMeta, type SearchResult } from './vector-store'
+import { collectionReader, type ExtractedDocument } from './collection-reader'
+
+export interface IndexProgress {
+	phase: 'extracting' | 'chunking' | 'embedding' | 'storing' | 'complete' | 'error'
+	current: number
+	total: number
+	documentName?: string
+	message?: string
+}
+
+export type ProgressCallback = (progress: IndexProgress) => void
+
+const CHUNK_SIZE = 500 // ~500 tokens per chunk
+const CHUNK_OVERLAP = 50 // overlap in chars for context continuity
+const EMBEDDING_BATCH_SIZE = 20 // documents per API call
+
+export class EmbeddingService {
+	private vectorStore: VectorStore | null = null
+
+	async initialize(worldId: string): Promise<void> {
+		this.vectorStore = new VectorStore(worldId)
+		await this.vectorStore.open()
+	}
+
+	get isInitialized(): boolean {
+		return this.vectorStore !== null
+	}
+
+	// ---- Full Reindex ----
+
+	async reindexAll(journalFolderIds: string[], actorFolderIds: string[], onProgress?: ProgressCallback): Promise<void> {
+		if (!this.vectorStore) throw new Error('EmbeddingService not initialized')
+		if (!openRouterService.isConfigured) throw new Error('OpenRouter not configured')
+
+		try {
+			// Phase 1: Extract documents
+			onProgress?.({ phase: 'extracting', current: 0, total: 0, message: 'Extracting documents...' })
+
+			const journals = collectionReader.getJournalsByFolders(journalFolderIds)
+			const actors = collectionReader.getActorsByFolders(actorFolderIds)
+			const allDocs = [...journals, ...actors]
+
+			if (allDocs.length === 0) {
+				onProgress?.({ phase: 'complete', current: 0, total: 0, message: 'No documents to index.' })
+				return
+			}
+
+			// Phase 2: Clear existing and chunk
+			onProgress?.({ phase: 'chunking', current: 0, total: allDocs.length, message: 'Chunking documents...' })
+
+			await this.vectorStore.clear()
+
+			const allChunks: Array<{ doc: ExtractedDocument; chunkIndex: number; text: string }> = []
+
+			for (let i = 0; i < allDocs.length; i++) {
+				const doc = allDocs[i]
+				const chunks = this.chunkText(doc.content)
+
+				for (let j = 0; j < chunks.length; j++) {
+					allChunks.push({ doc, chunkIndex: j, text: chunks[j] })
+				}
+
+				onProgress?.({
+					phase: 'chunking',
+					current: i + 1,
+					total: allDocs.length,
+					documentName: doc.name,
+				})
+			}
+
+			// Phase 3: Generate embeddings in batches
+			onProgress?.({
+				phase: 'embedding',
+				current: 0,
+				total: allChunks.length,
+				message: `Generating embeddings for ${allChunks.length} chunks...`,
+			})
+
+			for (let i = 0; i < allChunks.length; i += EMBEDDING_BATCH_SIZE) {
+				const batch = allChunks.slice(i, i + EMBEDDING_BATCH_SIZE)
+				const texts = batch.map((c) => c.text)
+
+				const embeddingResponse = await openRouterService.generateEmbeddings(texts)
+
+				// Phase 4: Store vectors
+				const vectorEntries: VectorEntry[] = batch.map((chunk, idx) => ({
+					id: `${chunk.doc.type}:${chunk.doc.id}:${chunk.chunkIndex}`,
+					documentId: chunk.doc.id,
+					documentType: chunk.doc.type,
+					documentName: chunk.doc.name,
+					folderName: chunk.doc.folderName,
+					chunkIndex: chunk.chunkIndex,
+					text: chunk.text,
+					vector: embeddingResponse.data[idx].embedding,
+					metadata: chunk.doc.metadata,
+				}))
+
+				await this.vectorStore.upsertVectors(vectorEntries)
+
+				onProgress?.({
+					phase: 'embedding',
+					current: Math.min(i + EMBEDDING_BATCH_SIZE, allChunks.length),
+					total: allChunks.length,
+					message: `Embedded ${Math.min(i + EMBEDDING_BATCH_SIZE, allChunks.length)}/${allChunks.length} chunks`,
+				})
+			}
+
+			// Update index metadata for each document
+			for (const doc of allDocs) {
+				const chunkCount = allChunks.filter((c) => c.doc.id === doc.id).length
+				await this.vectorStore.setIndexMeta({
+					documentId: doc.id,
+					documentType: doc.type,
+					documentName: doc.name,
+					lastModified: doc.lastModified,
+					chunkCount,
+				})
+			}
+
+			onProgress?.({
+				phase: 'complete',
+				current: allChunks.length,
+				total: allChunks.length,
+				message: `Indexed ${allDocs.length} documents (${allChunks.length} chunks)`,
+			})
+		} catch (error: any) {
+			onProgress?.({
+				phase: 'error',
+				current: 0,
+				total: 0,
+				message: `Indexing failed: ${error.message}`,
+			})
+			throw error
+		}
+	}
+
+	// ---- Semantic Search ----
+
+	async search(
+		query: string,
+		topK: number = 5,
+		filter?: {
+			documentType?: 'journal' | 'actor'
+		},
+	): Promise<SearchResult[]> {
+		if (!this.vectorStore) throw new Error('EmbeddingService not initialized')
+		if (!openRouterService.isConfigured) throw new Error('OpenRouter not configured')
+
+		// Generate embedding for the query
+		const embeddingResponse = await openRouterService.generateEmbeddings(query)
+		const queryVector = embeddingResponse.data[0].embedding
+
+		// Search the vector store
+		return this.vectorStore.search(queryVector, topK, filter)
+	}
+
+	// ---- Build context for LLM from search results ----
+
+	buildContext(results: SearchResult[]): string {
+		if (results.length === 0) return ''
+
+		const contextParts: string[] = ['## Relevant Campaign Information\n']
+
+		// Group by document for cleaner output
+		const byDoc = new Map<string, SearchResult[]>()
+		for (const result of results) {
+			const key = `${result.entry.documentType}:${result.entry.documentId}`
+			if (!byDoc.has(key)) byDoc.set(key, [])
+			byDoc.get(key)!.push(result)
+		}
+
+		for (const [, docResults] of byDoc) {
+			const first = docResults[0].entry
+			const typeLabel = first.documentType === 'journal' ? '📖' : '👤'
+			contextParts.push(`### ${typeLabel} ${first.documentName} (${first.folderName})\n`)
+
+			// Sort chunks by index for reading order
+			docResults.sort((a, b) => a.entry.chunkIndex - b.entry.chunkIndex)
+
+			for (const result of docResults) {
+				contextParts.push(result.entry.text)
+			}
+
+			contextParts.push('')
+		}
+
+		return contextParts.join('\n')
+	}
+
+	// ---- Stats ----
+
+	async getStats(): Promise<{
+		totalVectors: number
+		totalDocuments: number
+		byType: Record<string, number>
+	}> {
+		if (!this.vectorStore) return { totalVectors: 0, totalDocuments: 0, byType: {} }
+		return this.vectorStore.getStats()
+	}
+
+	// ---- Text Chunking ----
+
+	private chunkText(text: string): string[] {
+		if (!text || text.length === 0) return []
+
+		// If text is small enough, return as single chunk
+		if (text.length <= CHUNK_SIZE) return [text]
+
+		const chunks: string[] = []
+		let start = 0
+
+		while (start < text.length) {
+			let end = start + CHUNK_SIZE
+
+			// Try to break at a sentence or paragraph boundary
+			if (end < text.length) {
+				// Look for paragraph break
+				const paragraphBreak = text.lastIndexOf('\n\n', end)
+				if (paragraphBreak > start + CHUNK_SIZE * 0.5) {
+					end = paragraphBreak
+				} else {
+					// Look for sentence break
+					const sentenceBreak = text.lastIndexOf('. ', end)
+					if (sentenceBreak > start + CHUNK_SIZE * 0.5) {
+						end = sentenceBreak + 1
+					}
+				}
+			}
+
+			chunks.push(text.slice(start, end).trim())
+
+			// Move start forward with overlap
+			start = end - CHUNK_OVERLAP
+			if (start < 0) start = 0
+
+			// Prevent infinite loop
+			if (start >= text.length - 1) break
+			if (chunks.length > 1000) break // safety valve
+		}
+
+		return chunks.filter((c) => c.length > 0)
+	}
+
+	// ---- Cleanup ----
+
+	async destroy(): Promise<void> {
+		this.vectorStore?.close()
+		this.vectorStore = null
+	}
+}
+
+export const embeddingService = new EmbeddingService()

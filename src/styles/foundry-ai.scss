@@ -1,0 +1,174 @@
+/* ==========================================================================
+   FoundryAI — Global Styles
+   Applied via module.json styles entry. Scoped via .foundry-ai class.
+   ========================================================================== */
+
+// ---- CSS Variables ----
+:root {
+	--foundry-ai-bg: #1a1a2e;
+	--foundry-ai-bg-secondary: #16213e;
+	--foundry-ai-text: #e0e0e0;
+	--foundry-ai-accent: #8b5cf6;
+	--foundry-ai-accent-hover: #7c3aed;
+	--foundry-ai-gold: #e0c080;
+	--foundry-ai-border: rgba(255, 255, 255, 0.08);
+	--foundry-ai-user: #3b82f6;
+	--foundry-ai-assistant: #8b5cf6;
+	--foundry-ai-tool: #f59e0b;
+	--foundry-ai-success: #4ade80;
+	--foundry-ai-error: #f87171;
+	--foundry-ai-warning: #fbbf24;
+}
+
+// ---- Application Frame ----
+.foundry-ai {
+	&.application {
+		background: var(--foundry-ai-bg);
+		border: 1px solid rgba(139, 92, 246, 0.15);
+		border-radius: 8px;
+		box-shadow:
+			0 4px 24px rgba(0, 0, 0, 0.4),
+			0 0 40px rgba(139, 92, 246, 0.05);
+		overflow: hidden;
+	}
+
+	// Window header
+	.window-header {
+		background: rgba(0, 0, 0, 0.4) !important;
+		border-bottom: 1px solid rgba(139, 92, 246, 0.15);
+		padding: 4px 8px;
+
+		.window-title {
+			color: var(--foundry-ai-gold);
+			font-family: 'Signika', sans-serif;
+			font-weight: 600;
+			font-size: 0.95em;
+		}
+
+		.header-control {
+			color: rgba(255, 255, 255, 0.5);
+
+			&:hover {
+				color: #fff;
+			}
+		}
+	}
+
+	// Window content
+	.window-content {
+		background: var(--foundry-ai-bg);
+		padding: 0 !important;
+		overflow: hidden;
+	}
+
+	// Fix for Foundry's default styling overrides
+	select,
+	input[type='text'],
+	input[type='password'],
+	input[type='number'],
+	textarea {
+		background: rgba(255, 255, 255, 0.06);
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		color: var(--foundry-ai-text);
+		border-radius: 6px;
+
+		&:focus {
+			border-color: rgba(139, 92, 246, 0.5);
+			outline: none;
+			box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.1);
+		}
+	}
+
+	button {
+		font-family: 'Signika', sans-serif;
+	}
+}
+
+// ---- Sidebar Tab Styling ----
+.foundry-ai-sidebar-tab {
+	.sidebar-tab-content,
+	.window-content {
+		background: var(--foundry-ai-bg);
+		padding: 0 !important;
+	}
+}
+
+// Sidebar tab icon highlight when active
+.sidebar-tabs [data-tab='foundry-ai'],
+nav.tabs [data-tab='foundry-ai'] {
+	&.active {
+		color: var(--foundry-ai-accent);
+		text-shadow: 0 0 8px rgba(139, 92, 246, 0.4);
+	}
+}
+
+// ---- Scene Control Button ----
+.scene-control[data-tool='foundry-ai'] {
+	&.active {
+		color: var(--foundry-ai-accent);
+	}
+}
+
+// ---- Scrollbar Styling ----
+.foundry-ai {
+	* {
+		scrollbar-width: thin;
+		scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+	}
+
+	*::-webkit-scrollbar {
+		width: 6px;
+		height: 6px;
+	}
+
+	*::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	*::-webkit-scrollbar-thumb {
+		background: rgba(255, 255, 255, 0.15);
+		border-radius: 3px;
+
+		&:hover {
+			background: rgba(255, 255, 255, 0.25);
+		}
+	}
+}
+
+// ---- Tooltip ----
+.foundry-ai-tooltip {
+	background: var(--foundry-ai-bg-secondary);
+	border: 1px solid var(--foundry-ai-border);
+	border-radius: 6px;
+	padding: 6px 10px;
+	font-size: 0.85em;
+	color: var(--foundry-ai-text);
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+// ---- Animations ----
+@keyframes foundry-ai-fade-in {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes foundry-ai-slide-in {
+	from {
+		opacity: 0;
+		transform: translateX(-8px);
+	}
+	to {
+		opacity: 1;
+		transform: translateX(0);
+	}
+}
+
+.foundry-ai .message-bubble {
+	animation: foundry-ai-fade-in 0.2s ease-out;
+}

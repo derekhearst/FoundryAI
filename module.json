@@ -1,0 +1,32 @@
+{
+	"id": "foundry-ai",
+	"title": "FoundryAI",
+	"description": "AI-powered DM assistant with chat interface, RAG over journals/actors, session recaps, quest tracking, and more.",
+	"version": "0.1.0",
+	"authors": [
+		{
+			"name": "Derek",
+			"discord": ""
+		}
+	],
+	"compatibility": {
+		"minimum": "13",
+		"verified": "13",
+		"maximum": "13"
+	},
+	"esmodules": ["module.js"],
+	"styles": ["styles.css"],
+	"languages": [
+		{
+			"lang": "en",
+			"name": "English",
+			"path": "languages/en.json"
+		}
+	],
+	"socket": true,
+	"url": "",
+	"manifest": "",
+	"download": "",
+	"license": "MIT",
+	"readme": ""
+}
