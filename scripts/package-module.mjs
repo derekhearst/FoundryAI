@@ -32,7 +32,7 @@ const moduleJson = JSON.parse(fs.readFileSync(moduleJsonPath, 'utf-8'))
 const version = moduleJson.version
 
 moduleJson.manifest = `https://github.com/${GITHUB_REPO}/releases/latest/download/module.json`
-moduleJson.download = `https://github.com/${GITHUB_REPO}/releases/download/v${version}/${MODULE_ID}.zip`
+moduleJson.download = `https://github.com/${GITHUB_REPO}/releases/download/${version}/${MODULE_ID}.zip`
 
 fs.writeFileSync(moduleJsonPath, JSON.stringify(moduleJson, null, '\t') + '\n')
 console.log(`✔ Patched dist/module.json — version ${version}`)
@@ -55,8 +55,8 @@ const zipSize = (fs.statSync(zipPath).size / 1024).toFixed(1)
 console.log(`✔ Created ${MODULE_ID}.zip (${zipSize} KB)`)
 console.log('')
 console.log('Next steps:')
-console.log(`  1. git tag v${version} && git push --tags`)
-console.log(`  2. Create a GitHub Release for v${version}`)
+console.log(`  1. git tag ${version} && git push --tags`)
+console.log(`  2. Create a GitHub Release for ${version}`)
 console.log(`  3. Upload these two files to the release:`)
 console.log(`     • ${MODULE_ID}.zip`)
 console.log(`     • dist/module.json`)
