@@ -8,10 +8,9 @@ import { openRouterService } from '@core/openrouter-service'
 import { embeddingService } from '@core/embedding-service'
 import { chatSessionManager } from '@core/chat-session-manager'
 import { sessionRecapManager } from '@core/session-recap-manager'
-import { SvelteSidebarTab, openPopoutChat, openSettingsDialog } from '@ui/svelte-application'
+import { openPopoutChat } from '@ui/svelte-application'
 import { buildSystemPrompt } from '@core/system-prompt'
 import ChatWindow from '@ui/components/ChatWindow.svelte'
-import SettingsPanel from '@ui/components/SettingsPanel.svelte'
 
 // Import styles so Vite bundles them
 import './styles/foundry-ai.scss'
@@ -99,68 +98,23 @@ Hooks.once('ready', async () => {
 // ---- Sidebar Tab Registration ----
 
 function registerSidebarTab() {
-	// Add the FoundryAI tab to the sidebar
+	// v13 doesn't support custom sidebar tab classes via SidebarTabDescriptor,
+	// so we manually inject a brain icon into the sidebar nav that opens a popout.
 	Hooks.on('renderSidebar', (_app: any, html: HTMLElement) => {
-		// Check if tab already exists
-		if (html.querySelector('[data-tab="foundry-ai"]')) return
-
-		const sidebar = ui.sidebar
-		if (!sidebar) return
-
-		// Use Foundry's tab registration system
-		const tabConfig: SidebarTabDescriptor = {
-			id: MODULE_ID,
-			icon: 'fas fa-brain',
-			label: 'FoundryAI',
-			cls: createSidebarTabClass(),
-			order: 100,
-		}
-
-		// Register the tab descriptor
-		if (typeof foundry.applications.sidebar.Sidebar.TABS === 'object') {
-			foundry.applications.sidebar.Sidebar.TABS[MODULE_ID] = tabConfig
-		}
-	})
-
-	// Alternative: Add tab button manually after sidebar renders
-	Hooks.on('renderSidebarV2', (_app: any, html: HTMLElement) => {
-		injectSidebarTab(html)
-	})
-
-	// Also try with the generic render hook (for compatibility)
-	Hooks.on('changeSidebarTab', (_tab: any) => {
-		// Opportunity to refresh our tab if needed
+		injectSidebarButton(html)
 	})
 }
 
 /**
- * Create a sidebar tab class wired to the ChatWindow Svelte component.
+ * Inject a brain icon button into the sidebar navigation bar.
+ * Clicking it opens the FoundryAI chat popout window.
  */
-function createSidebarTabClass(): typeof foundry.applications.sidebar.AbstractSidebarTab {
-	return class FoundryAISidebarTab extends SvelteSidebarTab {
-		constructor(options: Partial<ApplicationConfiguration> = {}) {
-			super(ChatWindow, {}, options)
-		}
-
-		static override tabName = MODULE_ID
-
-		static override DEFAULT_OPTIONS = {
-			...SvelteSidebarTab.DEFAULT_OPTIONS,
-			id: 'foundry-ai-sidebar',
-			classes: ['foundry-ai'],
-		}
-	} as any
-}
-
-/**
- * Fallback: Manually inject a tab button into the sidebar navigation.
- */
-function injectSidebarTab(sidebarHtml: HTMLElement) {
-	const nav = sidebarHtml.querySelector('.sidebar-tabs, nav.tabs')
+function injectSidebarButton(sidebarHtml: HTMLElement) {
+	const nav = sidebarHtml.querySelector('nav.tabs')
 	if (!nav) return
 
 	// Don't add if already present
-	if (nav.querySelector('[data-tab="foundry-ai"]')) return
+	if (nav.querySelector(`[data-tab="${MODULE_ID}"]`)) return
 
 	const tabButton = document.createElement('a')
 	tabButton.classList.add('item')
@@ -169,6 +123,7 @@ function injectSidebarTab(sidebarHtml: HTMLElement) {
 	tabButton.innerHTML = '<i class="fas fa-brain"></i>'
 	tabButton.addEventListener('click', (e) => {
 		e.preventDefault()
+		e.stopPropagation()
 		openPopoutChat(ChatWindow)
 	})
 
@@ -178,19 +133,20 @@ function injectSidebarTab(sidebarHtml: HTMLElement) {
 // ---- Scene Controls Button ----
 
 function registerSceneControlButton() {
-	Hooks.on('getSceneControlButtons', (controls: any[]) => {
-		// Add a button in the token controls group
-		const tokenGroup = controls.find((c: any) => c.name === 'token')
+	Hooks.on('getSceneControlButtons', (controls: any) => {
+		// In v13, controls is Record<string, SceneControl> and tools is Record<string, SceneControlTool>
+		const tokenGroup = controls.tokens ?? controls.token
 		if (tokenGroup?.tools) {
-			tokenGroup.tools.push({
+			tokenGroup.tools[MODULE_ID] = {
 				name: MODULE_ID,
 				title: 'FoundryAI Chat',
 				icon: 'fas fa-brain',
 				button: true,
-				onClick: () => {
+				order: 100,
+				onChange: () => {
 					openPopoutChat(ChatWindow)
 				},
-			})
+			}
 		}
 	})
 }

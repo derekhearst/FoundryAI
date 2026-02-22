@@ -3,6 +3,9 @@
    Registers all module settings with Foundry VTT's ClientSettings API.
    ========================================================================== */
 
+import { SvelteApplication } from '@ui/svelte-application'
+import SettingsPanel from '@ui/components/SettingsPanel.svelte'
+
 const MODULE_ID = 'foundry-ai'
 
 export interface FoundryAISettings {
@@ -194,20 +197,36 @@ export async function setSetting<K extends keyof FoundryAISettings>(
 	await game.settings.set(MODULE_ID, key, value)
 }
 
-// ---- Placeholder for the Settings Application ----
-// This will be replaced by the Svelte-based settings panel
+// ---- Settings Application (Svelte-powered) ----
 
-class FoundryAISettingsApp extends foundry.applications.api.ApplicationV2 {
-	static DEFAULT_OPTIONS = {
-		...foundry.applications.api.ApplicationV2.DEFAULT_OPTIONS,
-		id: 'foundry-ai-settings',
-		title: 'FoundryAI Settings',
-		width: 600,
-		height: 'auto' as const,
+class FoundryAISettingsApp extends SvelteApplication {
+	constructor(options: Partial<ApplicationConfiguration> = {}) {
+		super(SettingsPanel, {}, options)
 	}
 
-	// The actual rendering will be handled by mounting a Svelte component.
-	// This is a temporary placeholder that will be wired up in the module entry point.
+	static override DEFAULT_OPTIONS: ApplicationConfiguration = {
+		...SvelteApplication.DEFAULT_OPTIONS,
+		id: 'foundry-ai-settings',
+		classes: ['foundry-ai'],
+		window: {
+			frame: true,
+			positioned: true,
+			title: 'FoundryAI Settings',
+			icon: 'fas fa-brain',
+			minimizable: false,
+			resizable: true,
+			contentTag: 'section',
+			contentClasses: ['foundry-ai-content'],
+		},
+		position: {
+			width: 600,
+			height: 700,
+		},
+	}
+
+	override get title(): string {
+		return 'FoundryAI Settings'
+	}
 }
 
 export { FoundryAISettingsApp }
