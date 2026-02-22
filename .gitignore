@@ -1,2 +1,27 @@
-dist/*
-node_modules/*
+# Build output
+dist/
+
+# Dependencies
+node_modules/
+
+# Package artifacts
+*.zip
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+.vscode/settings.json
+
+# Env / secrets
+.env
+.env.*
+
+# Lockfiles (bun)
+# bun.lock is committed for reproducible builds
+
+# Reference project (not part of the module)
+reference/

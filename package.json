@@ -11,7 +11,8 @@
 		"test:watch": "vitest",
 		"lint": "eslint src/",
 		"typecheck": "tsc --noEmit",
-		"link": "node scripts/link-module.mjs"
+		"link": "node scripts/link-module.mjs",
+		"package": "node scripts/package-module.mjs"
 	},
 	"devDependencies": {
 		"@sveltejs/vite-plugin-svelte": "^5.0.0",
