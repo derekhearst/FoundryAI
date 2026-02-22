@@ -95,14 +95,44 @@ Hooks.once('ready', async () => {
 	ui.notifications.info('FoundryAI is ready! Click the brain icon to start chatting.')
 })
 
-// ---- Sidebar Tab Registration ----
+// ---- Sidebar Button Registration ----
 
 function registerSidebarTab() {
-	// v13 doesn't support custom sidebar tab classes via SidebarTabDescriptor,
-	// so we manually inject a brain icon into the sidebar nav that opens a popout.
+	// Inject a "FoundryAI" button into the Chat sidebar tab header
+	Hooks.on('renderChatLog', (_app: any, html: HTMLElement) => {
+		injectChatLogButton(html)
+	})
+
+	// Also try the generic sidebar render hook
 	Hooks.on('renderSidebar', (_app: any, html: HTMLElement) => {
 		injectSidebarButton(html)
 	})
+}
+
+/**
+ * Add a FoundryAI button to the Chat Log header area.
+ */
+function injectChatLogButton(chatHtml: HTMLElement) {
+	// Look for the chat controls or header area
+	const controlArea = chatHtml.querySelector('.chat-control-icon, #chat-controls, .directory-header, .header-actions')
+	if (!controlArea) return
+
+	// Don't add if already present
+	if (chatHtml.querySelector('.foundry-ai-chat-btn')) return
+
+	const btn = document.createElement('button')
+	btn.className = 'foundry-ai-chat-btn'
+	btn.setAttribute('data-tooltip', 'Open FoundryAI Chat')
+	btn.setAttribute('type', 'button')
+	btn.innerHTML = '<i class="fas fa-brain"></i> AI Chat'
+	btn.style.cssText =
+		'cursor:pointer; margin:4px; padding:4px 8px; border-radius:4px; background:var(--color-shadow-primary, #4b4a44); color:#fff; border:1px solid var(--color-border-light-tertiary, #999); font-size:12px; display:flex; align-items:center; gap:4px;'
+	btn.addEventListener('click', (e) => {
+		e.preventDefault()
+		openPopoutChat(ChatWindow)
+	})
+
+	controlArea.parentElement?.insertBefore(btn, controlArea)
 }
 
 /**
@@ -110,16 +140,22 @@ function registerSidebarTab() {
  * Clicking it opens the FoundryAI chat popout window.
  */
 function injectSidebarButton(sidebarHtml: HTMLElement) {
-	const nav = sidebarHtml.querySelector('nav.tabs')
+	// Try multiple selectors for the sidebar tab navigation
+	const nav = sidebarHtml.querySelector('nav.tabs') || sidebarHtml.querySelector('[role="tablist"]')
 	if (!nav) return
 
 	// Don't add if already present
-	if (nav.querySelector(`[data-tab="${MODULE_ID}"]`)) return
+	if (nav.querySelector(`.foundry-ai-sidebar-btn`)) return
 
-	const tabButton = document.createElement('a')
-	tabButton.classList.add('item')
-	tabButton.setAttribute('data-tab', MODULE_ID)
+	// Match the style of existing sidebar tab buttons
+	const existingTab = nav.querySelector('button, a')
+	const isButton = existingTab?.tagName === 'BUTTON'
+
+	const tabButton = document.createElement(isButton ? 'button' : 'a')
+	tabButton.className = 'foundry-ai-sidebar-btn item'
+	if (isButton) tabButton.setAttribute('type', 'button')
 	tabButton.setAttribute('data-tooltip', 'FoundryAI')
+	tabButton.setAttribute('aria-label', 'FoundryAI')
 	tabButton.innerHTML = '<i class="fas fa-brain"></i>'
 	tabButton.addEventListener('click', (e) => {
 		e.preventDefault()
