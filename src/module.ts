@@ -27,9 +27,6 @@ Hooks.once('init', () => {
 
 	// Register scene control button (must be before first render)
 	registerSceneControlButton()
-
-	// Register sidebar tab icon via Sidebar.TABS + changeTab intercept
-	registerSidebarTab()
 })
 
 Hooks.once('ready', async () => {
@@ -99,42 +96,71 @@ Hooks.once('ready', async () => {
 		}
 	})
 
+	// Create/update the hotbar macro for easy access
+	await ensureChatMacro()
+
 	// Notification
-	ui.notifications.info('FoundryAI is ready! Click the brain icon to start chatting.')
+	ui.notifications.info('FoundryAI is ready! Use the hotbar macro or scene controls brain icon to chat.')
 })
 
-// ---- Sidebar Tab Registration ----
+// ---- Macro Creation ----
 
 /**
- * Register a brain icon in the right-side sidebar tab bar by adding an entry
- * to Sidebar.TABS and intercepting the tab change to open the chat popout.
+ * Automatically create (or update) a "FoundryAI Chat" macro in the hotbar
+ * so the GM can open the chat window with one click.
  */
-function registerSidebarTab() {
+async function ensureChatMacro() {
 	try {
-		const SidebarClass = foundry.applications.sidebar.Sidebar as any
+		const MACRO_NAME = 'FoundryAI Chat'
+		const MACRO_FLAG = 'foundry-ai-chat-macro'
 
-		// Add our tab descriptor to the static TABS record
-		// This makes Foundry render a brain icon in the sidebar tab bar
-		SidebarClass.TABS[MODULE_ID] = {
-			icon: 'fas fa-brain',
-			tooltip: 'FoundryAI Chat',
-			gmOnly: true,
+		// Check if our macro already exists
+		let macro = game.macros?.find((m: any) => m.getFlag(MODULE_ID, MACRO_FLAG))
+
+		const macroCommand = 'game.foundryAI.openChat()'
+
+		if (!macro) {
+			// Create the macro
+			macro = await Macro.create({
+				name: MACRO_NAME,
+				type: 'script',
+				img: 'icons/magic/perception/eye-ringed-glow-angry-small-teal.webp',
+				command: macroCommand,
+				[`flags.${MODULE_ID}.${MACRO_FLAG}`]: true,
+			} as any)
+
+			console.log('FoundryAI | Created chat macro.')
+		} else if (macro.command !== macroCommand) {
+			// Update command if it changed between versions
+			await macro.update({ command: macroCommand })
+			console.log('FoundryAI | Updated chat macro command.')
 		}
 
-		// Monkey-patch changeTab to intercept clicks on our fake tab
-		const origChangeTab = SidebarClass.prototype.changeTab
-		SidebarClass.prototype.changeTab = function (tab: string, group: string, options: any = {}) {
-			if (tab === MODULE_ID) {
-				// Don't actually switch tabs — just open the popout window
-				openPopoutChat(ChatWindow)
-				return
+		// Assign to hotbar slot 10 if not already on the hotbar
+		if (macro) {
+			const user = game.user as any
+			const hotbar: Record<string, string> = user?.hotbar || {}
+			const alreadyOnBar = Object.values(hotbar).includes(macro.id)
+
+			if (!alreadyOnBar) {
+				// Find first empty slot (1-10), prefer slot 10
+				let targetSlot = 10
+				if (hotbar[String(targetSlot)]) {
+					// Slot 10 occupied, find first empty
+					for (let i = 1; i <= 10; i++) {
+						if (!hotbar[String(i)]) {
+							targetSlot = i
+							break
+						}
+					}
+				}
+
+				await user?.assignHotbarMacro(macro, targetSlot)
+				console.log(`FoundryAI | Assigned chat macro to hotbar slot ${targetSlot}.`)
 			}
-			return origChangeTab.call(this, tab, group, options)
 		}
-
-		console.log('FoundryAI | Sidebar tab registered via Sidebar.TABS')
 	} catch (err) {
-		console.error('FoundryAI | Failed to register sidebar tab:', err)
+		console.error('FoundryAI | Failed to create chat macro:', err)
 	}
 }
 
