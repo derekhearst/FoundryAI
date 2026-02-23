@@ -493,12 +493,14 @@ export class CollectionReader {
 		// Debug: log all folders and their parents
 		console.log(`FoundryAI | resolveWithChildren: input IDs:`, folderIds)
 		console.log(`FoundryAI | resolveWithChildren: total folders in game:`, game.folders.size)
-		
+
 		// Log parent relationships for debugging
 		for (const id of folderIds) {
 			const parentFolder = game.folders.get(id)
 			if (parentFolder) {
-				console.log(`FoundryAI | resolveWithChildren: selected folder "${parentFolder.name}" (${id}), type=${parentFolder.type}`)
+				console.log(
+					`FoundryAI | resolveWithChildren: selected folder "${parentFolder.name}" (${id}), type=${parentFolder.type}`,
+				)
 			}
 		}
 
@@ -506,15 +508,21 @@ export class CollectionReader {
 		let debugCount = 0
 		for (const folder of game.folders.values()) {
 			if (folder.type === 'Actor' && debugCount < 10) {
-				console.log(`FoundryAI | resolveWithChildren: folder "${folder.name}" (${folder.id}) -> parent: ${folder.parent?.id ?? 'null'}, folder.folder: ${(folder as any).folder ?? 'undefined'}`)
+				console.log(
+					`FoundryAI | resolveWithChildren: folder "${folder.name}" (${folder.id}) -> parent: ${folder.parent?.id ?? 'null'}, folder.folder: ${(folder as any).folder ?? 'undefined'}`,
+				)
 				debugCount++
 			}
 		}
 
 		const addChildren = (parentId: string) => {
 			for (const folder of game.folders.values()) {
-				if (folder.parent?.id === parentId && !result.has(folder.id)) {
-					console.log(`FoundryAI | resolveWithChildren: found child "${folder.name}" (${folder.id}) of parent ${parentId}`)
+				// Foundry V12+ uses folder.folder for parent, older versions use folder.parent
+				const folderParentId = (folder as any).folder?.id ?? folder.parent?.id
+				if (folderParentId === parentId && !result.has(folder.id)) {
+					console.log(
+						`FoundryAI | resolveWithChildren: found child "${folder.name}" (${folder.id}) of parent ${parentId}`,
+					)
 					result.add(folder.id)
 					addChildren(folder.id) // Recurse
 				}
