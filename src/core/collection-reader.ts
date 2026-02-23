@@ -502,6 +502,15 @@ export class CollectionReader {
 			}
 		}
 
+		// Debug: Check first few Actor folders to see their parent structure
+		let debugCount = 0
+		for (const folder of game.folders.values()) {
+			if (folder.type === 'Actor' && debugCount < 10) {
+				console.log(`FoundryAI | resolveWithChildren: folder "${folder.name}" (${folder.id}) -> parent: ${folder.parent?.id ?? 'null'}, folder.folder: ${(folder as any).folder ?? 'undefined'}`)
+				debugCount++
+			}
+		}
+
 		const addChildren = (parentId: string) => {
 			for (const folder of game.folders.values()) {
 				if (folder.parent?.id === parentId && !result.has(folder.id)) {
