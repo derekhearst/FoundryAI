@@ -77,7 +77,7 @@ const CORE_TOOLS: ToolDefinition[] = [
 		function: {
 			name: 'search_journals',
 			description:
-				'Semantically search through indexed journal entries (sourcebooks, notes, lore). Returns the most relevant passages.',
+				'Semantically search through indexed journal entries (sourcebooks, notes, lore). Automatically returns the FULL content of each matching journal — no need to call get_journal afterwards. Always cite results using the provided uuidRef.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -1105,14 +1105,43 @@ async function handleSearchJournals(query: string, maxResults?: number): Promise
 		return JSON.stringify({ results: [], message: 'No matching journals found.' })
 	}
 
-	return JSON.stringify({
-		results: results.map((r) => ({
-			documentId: r.entry.documentId,
+	// Deduplicate by document ID — multiple chunks may come from the same journal
+	const seenIds = new Set<string>()
+	const uniqueResults: typeof results = []
+	for (const r of results) {
+		if (!seenIds.has(r.entry.documentId)) {
+			seenIds.add(r.entry.documentId)
+			uniqueResults.push(r)
+		}
+	}
+
+	// Auto-fetch full journal content for each unique result
+	const fullResults = uniqueResults.map((r) => {
+		const journalId = r.entry.documentId
+		const entry = game.journal?.get(journalId)
+		let fullContent: string | null = null
+
+		if (entry && isJournalFolderAllowed(entry.folder?.id)) {
+			fullContent = collectionReader.getJournalContent(journalId)
+		}
+
+		console.log(
+			`FoundryAI | search_journals: auto-fetched full content for "${r.entry.documentName}" (${journalId}): ${fullContent ? fullContent.length + ' chars' : 'not available'}`,
+		)
+
+		return {
+			documentId: journalId,
 			documentName: r.entry.documentName,
 			folder: r.entry.folderName,
 			relevance: Math.round(r.score * 100) / 100,
-			excerpt: r.entry.text.slice(0, 500),
-		})),
+			uuidRef: `@UUID[JournalEntry.${journalId}]{${r.entry.documentName}}`,
+			fullContent: fullContent || r.entry.text,
+		}
+	})
+
+	return JSON.stringify({
+		note: 'Full journal content is included below. ALWAYS cite sources using the uuidRef field when referencing this material.',
+		results: fullResults,
 	})
 }
 
