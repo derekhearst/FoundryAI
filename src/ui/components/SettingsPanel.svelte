@@ -33,6 +33,8 @@
   let testResult = $state<{ success: boolean; message: string } | null>(null);
   let isSaving = $state(false);
   let indexStats = $state<{ totalVectors: number; documents: number } | null>(null);
+  let isIndexing = $state(false);
+  let indexProgress = $state('');
 
   // ---- Load current settings ----
   $effect(() => {
@@ -126,6 +128,9 @@
       // Reconfigure the service
       openRouterService.configure({ apiKey });
 
+      // Refresh stats display
+      await refreshStats();
+
       ui.notifications.info('FoundryAI settings saved!');
       application?.close();
     } catch (err: any) {
@@ -140,6 +145,59 @@
       return list.filter(id => id !== folderId);
     }
     return [...list, folderId];
+  }
+
+  async function refreshStats() {
+    try {
+      const stats = await embeddingService.getStats();
+      if (stats) indexStats = { totalVectors: stats.totalVectors, documents: stats.totalDocuments };
+      else indexStats = { totalVectors: 0, documents: 0 };
+    } catch {
+      indexStats = { totalVectors: 0, documents: 0 };
+    }
+  }
+
+  async function handleReindex() {
+    if (!apiKey) {
+      ui.notifications.warn('Enter your API key first.');
+      return;
+    }
+
+    if (selectedJournalFolders.length === 0 && selectedActorFolders.length === 0) {
+      ui.notifications.warn('Select at least one folder to index.');
+      return;
+    }
+
+    isIndexing = true;
+    indexProgress = 'Starting...';
+
+    try {
+      // Make sure service is configured
+      openRouterService.configure({ apiKey });
+
+      // Ensure embedding service is initialized
+      if (!embeddingService.isInitialized) {
+        const worldId = game.world?.id || 'default';
+        await embeddingService.initialize(worldId);
+      }
+
+      // Save folder selections first
+      await setSetting('journalFolders', selectedJournalFolders);
+      await setSetting('actorFolders', selectedActorFolders);
+
+      await embeddingService.reindexAll(selectedJournalFolders, selectedActorFolders, (progress) => {
+        indexProgress = progress.message || `${progress.phase}: ${progress.current}/${progress.total}`;
+      });
+
+      await refreshStats();
+      ui.notifications.info('Indexing complete!');
+    } catch (err: any) {
+      console.error('FoundryAI | Reindex failed:', err);
+      ui.notifications.error(`Indexing failed: ${err.message}`);
+    } finally {
+      isIndexing = false;
+      indexProgress = '';
+    }
   }
 </script>
 
@@ -252,6 +310,12 @@
         </div>
       {/if}
 
+      {#if isIndexing}
+        <div class="index-progress">
+          <i class="fas fa-spinner fa-spin"></i> {indexProgress}
+        </div>
+      {/if}
+
       <div class="field">
         <span class="field-label">Journal Folders to Index</span>
         <div class="folder-list">
@@ -291,6 +355,11 @@
           {/if}
         </div>
       </div>
+
+      <button class="reindex-btn" onclick={handleReindex} disabled={isIndexing}>
+        <i class="fas" class:fa-sync-alt={!isIndexing} class:fa-spinner={isIndexing} class:fa-spin={isIndexing}></i>
+        {isIndexing ? 'Indexing...' : 'Reindex Now'}
+      </button>
     </section>
 
     <!-- System Prompt -->
@@ -502,6 +571,46 @@
     font-size: 0.8em;
     color: #c4b5fd;
     margin-bottom: 12px;
+  }
+
+  .index-progress {
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 0.8em;
+    color: #93c5fd;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .reindex-btn {
+    width: 100%;
+    background: rgba(34, 197, 94, 0.15);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    color: #86efac;
+    padding: 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85em;
+    margin-top: 8px;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .reindex-btn:hover:not(:disabled) {
+    background: rgba(34, 197, 94, 0.25);
+    color: #4ade80;
+  }
+
+  .reindex-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .folder-list {

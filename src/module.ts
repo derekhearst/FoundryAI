@@ -25,8 +25,8 @@ Hooks.once('init', () => {
 	// Register settings
 	registerSettings()
 
-	// Register sidebar tab
-	registerSidebarTab()
+	// Register scene control button early (before first render)
+	registerSceneControlButton()
 })
 
 Hooks.once('ready', async () => {
@@ -80,8 +80,8 @@ Hooks.once('ready', async () => {
 		generateSessionRecap: publicGenerateRecap,
 	}
 
-	// Add module control button
-	registerSceneControlButton()
+	// Inject sidebar brain icon after DOM is ready
+	injectSidebarIcon()
 
 	// Listen for settings changes
 	Hooks.on(`${MODULE_ID}.settingsChanged`, (key: string) => {
@@ -95,82 +95,102 @@ Hooks.once('ready', async () => {
 	ui.notifications.info('FoundryAI is ready! Click the brain icon to start chatting.')
 })
 
-// ---- Sidebar Button Registration ----
+// ---- Sidebar Brain Icon (Direct DOM Injection) ----
 
-function registerSidebarTab() {
-	// Inject a "FoundryAI" button into the Chat sidebar tab header
-	Hooks.on('renderChatLog', (_app: any, html: HTMLElement) => {
-		injectChatLogButton(html)
+/**
+ * Inject a brain icon into the sidebar tab bar by querying the live DOM.
+ * Uses requestAnimationFrame to wait for the sidebar to finish rendering.
+ */
+function injectSidebarIcon() {
+	// Wait a tick for the sidebar DOM to be fully ready
+	requestAnimationFrame(() => {
+		doInjectSidebarIcon()
 	})
 
-	// Also try the generic sidebar render hook
-	Hooks.on('renderSidebar', (_app: any, html: HTMLElement) => {
-		injectSidebarButton(html)
+	// Also re-inject whenever the sidebar re-renders (tab changes, etc.)
+	Hooks.on('renderSidebar', () => {
+		requestAnimationFrame(() => {
+			doInjectSidebarIcon()
+		})
+	})
+
+	// Also re-inject when any sidebar tab renders (in case sidebar was rebuilt)
+	Hooks.on('changeSidebarTab', () => {
+		requestAnimationFrame(() => {
+			doInjectSidebarIcon()
+		})
 	})
 }
 
-/**
- * Add a FoundryAI button to the Chat Log header area.
- */
-function injectChatLogButton(chatHtml: HTMLElement) {
-	// Look for the chat controls or header area
-	const controlArea = chatHtml.querySelector('.chat-control-icon, #chat-controls, .directory-header, .header-actions')
-	if (!controlArea) return
+function doInjectSidebarIcon() {
+	// Already injected? Skip
+	if (document.querySelector('.foundry-ai-sidebar-btn')) return
 
-	// Don't add if already present
-	if (chatHtml.querySelector('.foundry-ai-chat-btn')) return
+	// Find the sidebar tab navigation in the live DOM
+	const sidebar = document.getElementById('sidebar')
+	if (!sidebar) {
+		console.warn('FoundryAI | #sidebar element not found in DOM')
+		return
+	}
 
-	const btn = document.createElement('button')
-	btn.className = 'foundry-ai-chat-btn'
-	btn.setAttribute('data-tooltip', 'Open FoundryAI Chat')
-	btn.setAttribute('type', 'button')
-	btn.innerHTML = '<i class="fas fa-brain"></i> AI Chat'
-	btn.style.cssText =
-		'cursor:pointer; margin:4px; padding:4px 8px; border-radius:4px; background:var(--color-shadow-primary, #4b4a44); color:#fff; border:1px solid var(--color-border-light-tertiary, #999); font-size:12px; display:flex; align-items:center; gap:4px;'
+	// Try multiple selectors for the tab bar
+	const nav =
+		sidebar.querySelector('nav.tabs') ||
+		sidebar.querySelector('nav[role="tablist"]') ||
+		sidebar.querySelector('nav') ||
+		sidebar.querySelector('[role="tablist"]')
+
+	if (!nav) {
+		console.warn('FoundryAI | Could not find sidebar tab navigation. Trying fallback...')
+		// Fallback: Search entire sidebar for a row of tab-like icons
+		const allNavs = sidebar.querySelectorAll('nav, [data-group]')
+		if (allNavs.length > 0) {
+			injectIntoNav(allNavs[0] as HTMLElement)
+		}
+		return
+	}
+
+	injectIntoNav(nav as HTMLElement)
+}
+
+function injectIntoNav(nav: HTMLElement) {
+	if (nav.querySelector('.foundry-ai-sidebar-btn')) return
+
+	// Detect existing tab element type (button vs a)
+	const existingTab = nav.querySelector('a[data-tab], button[data-tab], a.item, button.item')
+	const tagName = existingTab?.tagName === 'BUTTON' ? 'button' : 'a'
+
+	const btn = document.createElement(tagName)
+	btn.className = 'item foundry-ai-sidebar-btn'
+	if (tagName === 'button') btn.setAttribute('type', 'button')
+	btn.setAttribute('data-tooltip', 'FoundryAI Chat')
+	btn.setAttribute('aria-label', 'FoundryAI Chat')
+	btn.innerHTML = '<i class="fas fa-brain"></i>'
+
+	// Copy basic styles from an existing tab for consistent look
+	if (existingTab) {
+		const cs = window.getComputedStyle(existingTab)
+		btn.style.display = cs.display || 'flex'
+		btn.style.alignItems = cs.alignItems || 'center'
+		btn.style.justifyContent = cs.justifyContent || 'center'
+	}
+
 	btn.addEventListener('click', (e) => {
 		e.preventDefault()
-		openPopoutChat(ChatWindow)
-	})
-
-	controlArea.parentElement?.insertBefore(btn, controlArea)
-}
-
-/**
- * Inject a brain icon button into the sidebar navigation bar.
- * Clicking it opens the FoundryAI chat popout window.
- */
-function injectSidebarButton(sidebarHtml: HTMLElement) {
-	// Try multiple selectors for the sidebar tab navigation
-	const nav = sidebarHtml.querySelector('nav.tabs') || sidebarHtml.querySelector('[role="tablist"]')
-	if (!nav) return
-
-	// Don't add if already present
-	if (nav.querySelector(`.foundry-ai-sidebar-btn`)) return
-
-	// Match the style of existing sidebar tab buttons
-	const existingTab = nav.querySelector('button, a')
-	const isButton = existingTab?.tagName === 'BUTTON'
-
-	const tabButton = document.createElement(isButton ? 'button' : 'a')
-	tabButton.className = 'foundry-ai-sidebar-btn item'
-	if (isButton) tabButton.setAttribute('type', 'button')
-	tabButton.setAttribute('data-tooltip', 'FoundryAI')
-	tabButton.setAttribute('aria-label', 'FoundryAI')
-	tabButton.innerHTML = '<i class="fas fa-brain"></i>'
-	tabButton.addEventListener('click', (e) => {
-		e.preventDefault()
 		e.stopPropagation()
+		e.stopImmediatePropagation()
 		openPopoutChat(ChatWindow)
 	})
 
-	nav.appendChild(tabButton)
+	nav.appendChild(btn)
+	console.log('FoundryAI | Brain icon injected into sidebar navigation')
 }
 
 // ---- Scene Controls Button ----
 
 function registerSceneControlButton() {
 	Hooks.on('getSceneControlButtons', (controls: any) => {
-		// In v13, controls is Record<string, SceneControl> and tools is Record<string, SceneControlTool>
+		// In v13, controls may be Record<string, SceneControl> or array-like
 		const tokenGroup = controls.tokens ?? controls.token
 		if (tokenGroup?.tools) {
 			tokenGroup.tools[MODULE_ID] = {
@@ -179,10 +199,20 @@ function registerSceneControlButton() {
 				icon: 'fas fa-brain',
 				button: true,
 				order: 100,
+				// v13 may use onChange or onClick depending on build
 				onChange: () => {
 					openPopoutChat(ChatWindow)
 				},
+				onClick: () => {
+					openPopoutChat(ChatWindow)
+				},
+				onclick: () => {
+					openPopoutChat(ChatWindow)
+				},
 			}
+			console.log('FoundryAI | Scene control button registered')
+		} else {
+			console.warn('FoundryAI | Could not find token controls group. Available:', Object.keys(controls))
 		}
 	})
 }
