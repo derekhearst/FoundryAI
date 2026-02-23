@@ -258,4 +258,17 @@ const FORMATTING_INSTRUCTIONS = `## Response Formatting
 - For NPC dialogue, format as: **"{NPC Name}"**: *"Dialogue here"*
 - Use > blockquotes for read-aloud text the DM can narrate to players
 - Keep responses focused — prefer bullet points over long paragraphs
-- When presenting options, number them for easy reference`
+- When presenting options, number them for easy reference
+
+### Inline Document Links — IMPORTANT
+When you reference a journal entry or actor in your response, you MUST include a clickable Foundry link using the @UUID syntax so the DM can jump directly to the source material.
+
+**Format:**
+- Journal entries: @UUID[JournalEntry.{id}]{Display Name}
+- Actors: @UUID[Actor.{id}]{Display Name}
+
+**Examples:**
+- "According to @UUID[JournalEntry.abc123]{Chapter 3: The Amber Temple}, the temple contains..."
+- "@UUID[Actor.def456]{Strahd von Zarovich} is a powerful vampire lord..."
+
+You get the document ID from tool results (search_journals, get_journal, search_actors, get_actor all return an id field). ALWAYS use these links when citing sources — this is critical for the DM to verify and explore the source material quickly.`

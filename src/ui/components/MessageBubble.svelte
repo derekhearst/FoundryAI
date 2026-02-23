@@ -11,10 +11,10 @@
 
   let { role, content, isStreaming = false, toolName }: Props = $props();
 
+  // Render markdown then enrich Foundry @UUID links
   const renderedContent = $derived.by(() => {
     if (!content) return '';
     if (role === 'tool') {
-      // Show tool results as preformatted
       try {
         const parsed = JSON.parse(content);
         return `<pre class="tool-result">${JSON.stringify(parsed, null, 2)}</pre>`;
@@ -22,15 +22,26 @@
         return `<pre class="tool-result">${escapeHtml(content)}</pre>`;
       }
     }
-    // Render markdown for user/assistant messages
+    // Render markdown
+    let html: string;
     try {
-      return micromark(content, {
+      html = micromark(content, {
         extensions: [gfm()],
         htmlExtensions: [gfmHtml()],
       });
     } catch {
-      return escapeHtml(content).replace(/\n/g, '<br>');
+      html = escapeHtml(content).replace(/\n/g, '<br>');
     }
+
+    // Convert @UUID[Type.id]{Label} into clickable Foundry links
+    html = html.replace(
+      /@UUID\[([^\]]+)\]\{([^}]+)\}/g,
+      (_match, uuid, label) => {
+        return `<a class="content-link" data-uuid="${escapeHtml(uuid)}" data-tooltip="${escapeHtml(label)}"><i class="fas fa-book-open"></i> ${escapeHtml(label)}</a>`;
+      }
+    );
+
+    return html;
   });
 
   function escapeHtml(text: string): string {
@@ -38,6 +49,31 @@
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
+  }
+
+  /** Handle clicks on @UUID content links to open the Foundry document */
+  function handleContentClick(event: MouseEvent) {
+    const target = (event.target as HTMLElement).closest('a.content-link[data-uuid]') as HTMLElement | null;
+    if (!target) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const uuid = target.dataset.uuid;
+    if (!uuid) return;
+
+    try {
+      // Use Foundry's fromUuidSync to find the document and render its sheet
+      const doc = fromUuidSync(uuid) as any;
+      if (doc?.sheet) {
+        doc.sheet.render(true);
+      } else {
+        ui.notifications.warn(`Could not find document: ${uuid}`);
+      }
+    } catch (err) {
+      console.error('FoundryAI | Failed to open document:', uuid, err);
+      ui.notifications.warn(`Could not open document: ${uuid}`);
+    }
   }
 
   const roleLabel = $derived(
@@ -60,7 +96,8 @@
     <i class="fas {roleIcon}"></i>
     <span class="message-role">{roleLabel}</span>
   </div>
-  <div class="message-content">
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <div class="message-content" onclick={handleContentClick}>
     {#if role === 'tool'}
       <details class="tool-details">
         <summary>Tool Result: {toolName || 'Unknown'}</summary>
@@ -184,6 +221,25 @@
 
   .message-content :global(strong) {
     color: #e0c080;
+  }
+
+  .message-content :global(a.content-link) {
+    color: #e8c87a;
+    cursor: pointer;
+    text-decoration: none;
+    border-bottom: 1px dotted #e8c87a;
+    padding: 0 2px;
+    transition: color 0.15s, border-color 0.15s;
+  }
+
+  .message-content :global(a.content-link:hover) {
+    color: #ffd866;
+    border-bottom-color: #ffd866;
+  }
+
+  .message-content :global(a.content-link i) {
+    font-size: 0.85em;
+    margin-right: 2px;
   }
 
   .tool-details {

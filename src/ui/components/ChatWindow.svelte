@@ -35,9 +35,57 @@
   let indexProgress = $state('');
 
   // ---- Derived ----
-  const displayMessages = $derived(
-    messages.filter(m => m.role !== 'system')
-  );
+
+  // Group messages: merge consecutive tool-call assistant + tool results into compact groups
+  type CompactMessage =
+    | { type: 'message'; msg: LLMMessage; index: number }
+    | { type: 'tool-group'; toolCalls: Array<{ name: string; args: string }>; results: Array<{ name: string; content: string }> };
+
+  const compactMessages = $derived.by((): CompactMessage[] => {
+    const filtered = messages.filter(m => m.role !== 'system');
+    const result: CompactMessage[] = [];
+    let i = 0;
+
+    while (i < filtered.length) {
+      const msg = filtered[i];
+
+      // If this is an assistant message with tool_calls, group it with following tool results
+      if (msg.role === 'assistant' && msg.tool_calls?.length) {
+        const toolCalls = msg.tool_calls.map((tc: any) => ({
+          name: tc.function?.name || 'unknown',
+          args: tc.function?.arguments || '{}',
+        }));
+        const results: Array<{ name: string; content: string }> = [];
+
+        // Consume all following tool result messages
+        let j = i + 1;
+        while (j < filtered.length && filtered[j].role === 'tool') {
+          results.push({
+            name: filtered[j].name || 'unknown',
+            content: typeof filtered[j].content === 'string' ? filtered[j].content : '',
+          });
+          j++;
+        }
+
+        result.push({ type: 'tool-group', toolCalls, results });
+        i = j;
+        continue;
+      }
+
+      // Skip standalone tool messages (shouldn't happen but safety)
+      if (msg.role === 'tool') {
+        i++;
+        continue;
+      }
+
+      // Track original index for edit/retry
+      const originalIndex = messages.indexOf(msg);
+      result.push({ type: 'message', msg, index: originalIndex });
+      i++;
+    }
+
+    return result;
+  });
 
   const hasApiKey = $derived.by(() => {
     try {
@@ -63,6 +111,9 @@
   });
 
   // ---- Session Management ----
+  let editingIndex = $state<number | null>(null);
+  let editText = $state('');
+
   async function startNewSession() {
     const session = await chatSessionManager.createSession();
     currentSessionId = session.id;
@@ -132,11 +183,11 @@
         await handleNonStreamingResponse(apiMessages, model, temperature, maxTokens, useTools);
       }
 
-      // Save messages to session
+      // Save full conversation to session
       if (currentSessionId) {
-        await chatSessionManager.saveMessages(
+        await chatSessionManager.saveFullConversation(
           currentSessionId,
-          messages.slice(-2), // Save the user + assistant messages
+          messages,
           model,
         );
       }
@@ -151,6 +202,49 @@
       isGenerating = false;
       streamingContent = '';
     }
+  }
+
+  // ---- Edit & Retry ----
+  function startEditMessage(index: number) {
+    const msg = messages[index];
+    if (!msg || msg.role !== 'user') return;
+    editingIndex = index;
+    editText = typeof msg.content === 'string' ? msg.content : '';
+  }
+
+  function cancelEdit() {
+    editingIndex = null;
+    editText = '';
+  }
+
+  async function submitEdit() {
+    if (editingIndex === null || !editText.trim()) return;
+
+    // Truncate messages up to (but not including) the edited message
+    messages = messages.slice(0, editingIndex);
+    editingIndex = null;
+
+    // Re-send with edited text
+    inputText = editText;
+    editText = '';
+    await sendMessage();
+  }
+
+  async function retryFromMessage(index: number) {
+    // Find the user message at or before this index
+    let userIndex = index;
+    while (userIndex >= 0 && messages[userIndex].role !== 'user') {
+      userIndex--;
+    }
+    if (userIndex < 0) return;
+
+    const userText = typeof messages[userIndex].content === 'string' ? messages[userIndex].content : '';
+    if (!userText) return;
+
+    // Truncate everything from this user message onward and resend
+    messages = messages.slice(0, userIndex);
+    inputText = userText;
+    await sendMessage();
   }
 
   async function handleStreamingResponse(
@@ -455,7 +549,7 @@
             <i class="fas fa-cog"></i> Open Settings
           </button>
         </div>
-      {:else if displayMessages.length === 0}
+      {:else if compactMessages.length === 0}
         <div class="empty-chat">
           <i class="fas fa-brain"></i>
           <h3>FoundryAI</h3>
@@ -476,40 +570,59 @@
           </div>
         </div>
       {:else}
-        {#each displayMessages as msg, i (i)}
-          {#if msg.role === 'assistant' && msg.tool_calls?.length}
-            <!-- Compact tool activity group: shows tool names, collapses results -->
+        {#each compactMessages as item, i (i)}
+          {#if item.type === 'tool-group'}
+            <!-- Single compact box for all tool calls in this round -->
             <details class="tool-activity-group">
               <summary>
                 <i class="fas fa-wrench"></i>
-                <span>Tools: {msg.tool_calls.map((tc: any) => tc.function.name).join(', ')}</span>
-                <span class="tool-count">({msg.tool_calls.length} call{msg.tool_calls.length !== 1 ? 's' : ''})</span>
+                <span>Tool calls: {item.toolCalls.map(tc => tc.name).join(', ')}</span>
+                <span class="tool-count">({item.results.length} result{item.results.length !== 1 ? 's' : ''})</span>
               </summary>
               <div class="tool-results-list">
-                {#each displayMessages.slice(i + 1) as toolMsg}
-                  {#if toolMsg.role === 'tool'}
-                    <div class="tool-result-item">
-                      <span class="tool-result-name">{toolMsg.name}</span>
-                      <pre class="tool-result-data">{(() => { try { return JSON.stringify(JSON.parse(typeof toolMsg.content === 'string' ? toolMsg.content : ''), null, 2); } catch { return toolMsg.content; } })()}</pre>
-                    </div>
-                  {/if}
+                {#each item.results as result}
+                  <div class="tool-result-item">
+                    <span class="tool-result-name">{result.name}</span>
+                    <pre class="tool-result-data">{(() => { try { return JSON.stringify(JSON.parse(result.content), null, 2); } catch { return result.content; } })()}</pre>
+                  </div>
                 {/each}
               </div>
             </details>
-          {:else if msg.role === 'tool'}
-            <!-- Tool results are rendered inside the group above, skip standalone -->
-            {#if i === 0 || !(displayMessages[i - 1]?.role === 'tool' || (displayMessages[i - 1]?.role === 'assistant' && displayMessages[i - 1]?.tool_calls?.length))}
-              <MessageBubble
-                role="tool"
-                content={typeof msg.content === 'string' ? msg.content : ''}
-                toolName={msg.name}
-              />
+          {:else if item.msg.role === 'user'}
+            <!-- User message with edit/retry actions -->
+            {#if editingIndex === item.index}
+              <div class="message-edit-form">
+                <textarea
+                  class="edit-textarea"
+                  bind:value={editText}
+                  onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitEdit(); } if (e.key === 'Escape') cancelEdit(); }}
+                ></textarea>
+                <div class="edit-actions">
+                  <button class="edit-btn save" onclick={submitEdit}><i class="fas fa-check"></i> Send</button>
+                  <button class="edit-btn cancel" onclick={cancelEdit}><i class="fas fa-times"></i> Cancel</button>
+                </div>
+              </div>
+            {:else}
+              <div class="user-message-wrapper">
+                <MessageBubble
+                  role="user"
+                  content={typeof item.msg.content === 'string' ? item.msg.content : ''}
+                />
+                <div class="message-actions">
+                  <button class="action-btn" title="Edit & resend" onclick={() => startEditMessage(item.index)}>
+                    <i class="fas fa-pen"></i>
+                  </button>
+                  <button class="action-btn" title="Retry" onclick={() => retryFromMessage(item.index)}>
+                    <i class="fas fa-redo"></i>
+                  </button>
+                </div>
+              </div>
             {/if}
           {:else}
             <MessageBubble
-              role={msg.role as 'user' | 'assistant' | 'system' | 'tool'}
-              content={typeof msg.content === 'string' ? msg.content : ''}
-              toolName={msg.name}
+              role={item.msg.role as 'user' | 'assistant' | 'system' | 'tool'}
+              content={typeof item.msg.content === 'string' ? item.msg.content : ''}
+              toolName={item.msg.name}
             />
           {/if}
         {/each}
@@ -744,6 +857,104 @@
     padding: 4px;
     border-radius: 2px;
     color: rgba(255, 255, 255, 0.7);
+  }
+
+  /* ---- User message wrapper with actions ---- */
+  .user-message-wrapper {
+    position: relative;
+  }
+
+  .user-message-wrapper:hover .message-actions {
+    opacity: 1;
+  }
+
+  .message-actions {
+    display: flex;
+    gap: 4px;
+    position: absolute;
+    bottom: -2px;
+    right: 8px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .action-btn {
+    background: rgba(59, 130, 246, 0.3);
+    border: none;
+    color: rgba(255, 255, 255, 0.7);
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65em;
+    padding: 0;
+  }
+
+  .action-btn:hover {
+    background: rgba(59, 130, 246, 0.6);
+    color: #fff;
+  }
+
+  /* ---- Edit form ---- */
+  .message-edit-form {
+    margin: 4px 12px;
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 8px;
+    padding: 8px;
+  }
+
+  .edit-textarea {
+    width: 100%;
+    min-height: 60px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    color: inherit;
+    font-family: inherit;
+    font-size: 0.9em;
+    padding: 6px;
+    resize: vertical;
+    box-sizing: border-box;
+  }
+
+  .edit-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+    justify-content: flex-end;
+  }
+
+  .edit-btn {
+    border: none;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8em;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .edit-btn.save {
+    background: #3b82f6;
+    color: #fff;
+  }
+
+  .edit-btn.save:hover {
+    background: #2563eb;
+  }
+
+  .edit-btn.cancel {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .edit-btn.cancel:hover {
+    background: rgba(255, 255, 255, 0.2);
   }
 
   /* ---- Setup / Empty States ---- */

@@ -150,6 +150,28 @@ class ChatSessionManager {
 		await this.updatePageContent(entry, messages)
 	}
 
+	/** Replace the entire message array for a session (used after edits, retries, tool calls, etc.) */
+	async saveFullConversation(sessionId: string, allMessages: LLMMessage[], model?: string): Promise<void> {
+		const entry = game.journal?.get(sessionId)
+		if (!entry) throw new Error(`Chat session not found: ${sessionId}`)
+
+		const flags = (entry.flags?.[MODULE_ID] as Record<string, any>) || {}
+		const now = Date.now()
+
+		await entry.update({
+			flags: {
+				[MODULE_ID]: {
+					...flags,
+					messages: allMessages,
+					updatedAt: now,
+					model: model || flags.model || '',
+				},
+			},
+		})
+
+		await this.updatePageContent(entry, allMessages)
+	}
+
 	/** Load a session by ID */
 	loadSession(sessionId: string): ChatSession | null {
 		const entry = game.journal?.get(sessionId)
