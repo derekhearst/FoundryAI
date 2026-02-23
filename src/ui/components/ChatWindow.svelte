@@ -141,7 +141,98 @@
     streamingContent = '';
     viewMode = 'chat';
     showActorPicker = false;
+
+    // Auto-generate character introduction
+    await generateCharacterIntro(actorId, actorName);
     inputEl?.focus();
+  }
+
+  /**
+   * Generate an automatic character introduction when starting a roleplay session.
+   * Sends a hidden instruction to the AI; only the assistant's response is shown.
+   */
+  async function generateCharacterIntro(actorId: string, actorName: string) {
+    if (!hasApiKey) return;
+
+    isGenerating = true;
+    streamingContent = '';
+
+    try {
+      const systemPrompt = buildActorRoleplayPrompt({ actorId, actorName });
+      const introPrompt: LLMMessage = {
+        role: 'user',
+        content: `You are now entering a roleplay session as ${actorName}. Introduce yourself in character. Include:
+
+1. **Who you are** — your name, role, and a brief description of yourself
+2. **Your current goals** — what you're trying to accomplish, what motivates you
+3. **Common knowledge** — things most people would know about you or could learn by talking to you
+4. **Dialogue hooks** — topics players might bring up and how you'd respond (e.g. "If asked about the war...", "If asked about the artifact...")
+5. **Persuasion & social checks** — list 3-5 things players might try to convince you of, and for each one state the type of check (Persuasion, Intimidation, Deception, etc.) and the DC (difficulty class) required. Format as a table.
+
+Stay fully in character for the introduction, but present the dialogue hooks and check DCs in a helpful OOC (out-of-character) section at the end marked with --- so the DM can reference it.`,
+      };
+
+      const apiMessages: LLMMessage[] = [
+        { role: 'system', content: systemPrompt },
+        introPrompt,
+      ];
+
+      const model = getSetting('chatModel');
+      const temperature = getSetting('temperature');
+      const maxTokens = getSetting('maxTokens');
+      const stream = getSetting('streamResponses');
+
+      console.log(`FoundryAI | Generating character intro for ${actorName}`);
+
+      if (stream) {
+        let fullContent = '';
+        const onChunk: StreamCallback = (chunk) => {
+          if (chunk.content) {
+            fullContent += chunk.content;
+            streamingContent = fullContent;
+          }
+        };
+
+        await openRouterService.chatCompletionStream(
+          { model, messages: apiMessages, temperature, max_tokens: maxTokens },
+          onChunk,
+        );
+
+        if (fullContent) {
+          const assistantMsg: LLMMessage = { role: 'assistant', content: fullContent };
+          messages = [assistantMsg];
+        }
+      } else {
+        const response = await openRouterService.chatCompletion({
+          model,
+          messages: apiMessages,
+          temperature,
+          max_tokens: maxTokens,
+        });
+
+        const content = response.choices?.[0]?.message?.content;
+        if (content) {
+          const assistantMsg: LLMMessage = { role: 'assistant', content };
+          messages = [assistantMsg];
+        }
+      }
+
+      // Save to session
+      if (currentSessionId && messages.length > 0) {
+        await chatSessionManager.saveFullConversation(currentSessionId, messages, model);
+        console.log(`FoundryAI | Saved character intro to session ${currentSessionId}`);
+      }
+    } catch (error: any) {
+      console.error('FoundryAI | Character intro generation failed:', error);
+      const fallback: LLMMessage = {
+        role: 'assistant',
+        content: `*${actorName} stands before you, ready to speak.*\n\n(Character introduction could not be generated: ${error.message})`,
+      };
+      messages = [fallback];
+    } finally {
+      isGenerating = false;
+      streamingContent = '';
+    }
   }
 
   function loadSession(sessionId: string) {
