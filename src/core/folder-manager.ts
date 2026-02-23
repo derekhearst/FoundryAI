@@ -103,7 +103,7 @@ async function getOrCreateFolder(name: string, parentId: string | null, color?: 
 	const data: Record<string, any> = {
 		name,
 		type: 'JournalEntry',
-		parent: parentId,
+		folder: parentId,
 	}
 	if (color) data.color = color
 
