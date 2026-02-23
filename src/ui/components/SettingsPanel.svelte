@@ -71,7 +71,7 @@
 
     isLoadingModels = true;
     try {
-      openRouterService.configure({ apiKey });
+      openRouterService.configure({ apiKey, embeddingModel });
       const allModels = await openRouterService.listModels();
       chatModels = allModels.filter(m =>
         m.architecture?.modality?.includes('text') &&
@@ -97,7 +97,7 @@
     isTesting = true;
     testResult = null;
     try {
-      openRouterService.configure({ apiKey });
+      openRouterService.configure({ apiKey, embeddingModel });
       const ok = await openRouterService.testConnection();
       testResult = ok
         ? { success: true, message: '✅ Connection successful!' }
@@ -125,8 +125,8 @@
       await setSetting('journalFolders', selectedJournalFolders);
       await setSetting('actorFolders', selectedActorFolders);
 
-      // Reconfigure the service
-      openRouterService.configure({ apiKey });
+      // Reconfigure the service with all model settings
+      openRouterService.configure({ apiKey, defaultModel: chatModel, embeddingModel });
 
       // Refresh stats display
       await refreshStats();
@@ -173,7 +173,7 @@
 
     try {
       // Make sure service is configured
-      openRouterService.configure({ apiKey });
+      openRouterService.configure({ apiKey, defaultModel: chatModel, embeddingModel });
 
       // Ensure embedding service is initialized
       if (!embeddingService.isInitialized) {

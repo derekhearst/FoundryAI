@@ -25,8 +25,11 @@ Hooks.once('init', () => {
 	// Register settings
 	registerSettings()
 
-	// Register scene control button early (before first render)
+	// Register scene control button (must be before first render)
 	registerSceneControlButton()
+
+	// Register sidebar tab icon via Sidebar.TABS + changeTab intercept
+	registerSidebarTab()
 })
 
 Hooks.once('ready', async () => {
@@ -41,7 +44,11 @@ Hooks.once('ready', async () => {
 	// Configure OpenRouter service
 	const apiKey = getSetting('apiKey')
 	if (apiKey) {
-		openRouterService.configure({ apiKey })
+		openRouterService.configure({
+			apiKey,
+			defaultModel: getSetting('chatModel'),
+			embeddingModel: getSetting('embeddingModel'),
+		})
 	}
 
 	// Initialize embedding service
@@ -80,14 +87,15 @@ Hooks.once('ready', async () => {
 		generateSessionRecap: publicGenerateRecap,
 	}
 
-	// Inject sidebar brain icon after DOM is ready
-	injectSidebarIcon()
-
 	// Listen for settings changes
 	Hooks.on(`${MODULE_ID}.settingsChanged`, (key: string) => {
 		if (key === 'apiKey') {
 			const newKey = getSetting('apiKey')
-			if (newKey) openRouterService.configure({ apiKey: newKey })
+			if (newKey) openRouterService.configure({
+				apiKey: newKey,
+				defaultModel: getSetting('chatModel'),
+				embeddingModel: getSetting('embeddingModel'),
+			})
 		}
 	})
 
@@ -95,102 +103,50 @@ Hooks.once('ready', async () => {
 	ui.notifications.info('FoundryAI is ready! Click the brain icon to start chatting.')
 })
 
-// ---- Sidebar Brain Icon (Direct DOM Injection) ----
+// ---- Sidebar Tab Registration ----
 
 /**
- * Inject a brain icon into the sidebar tab bar by querying the live DOM.
- * Uses requestAnimationFrame to wait for the sidebar to finish rendering.
+ * Register a brain icon in the right-side sidebar tab bar by adding an entry
+ * to Sidebar.TABS and intercepting the tab change to open the chat popout.
  */
-function injectSidebarIcon() {
-	// Wait a tick for the sidebar DOM to be fully ready
-	requestAnimationFrame(() => {
-		doInjectSidebarIcon()
-	})
+function registerSidebarTab() {
+	try {
+		const SidebarClass = foundry.applications.sidebar.Sidebar as any
 
-	// Also re-inject whenever the sidebar re-renders (tab changes, etc.)
-	Hooks.on('renderSidebar', () => {
-		requestAnimationFrame(() => {
-			doInjectSidebarIcon()
-		})
-	})
-
-	// Also re-inject when any sidebar tab renders (in case sidebar was rebuilt)
-	Hooks.on('changeSidebarTab', () => {
-		requestAnimationFrame(() => {
-			doInjectSidebarIcon()
-		})
-	})
-}
-
-function doInjectSidebarIcon() {
-	// Already injected? Skip
-	if (document.querySelector('.foundry-ai-sidebar-btn')) return
-
-	// Find the sidebar tab navigation in the live DOM
-	const sidebar = document.getElementById('sidebar')
-	if (!sidebar) {
-		console.warn('FoundryAI | #sidebar element not found in DOM')
-		return
-	}
-
-	// Try multiple selectors for the tab bar
-	const nav =
-		sidebar.querySelector('nav.tabs') ||
-		sidebar.querySelector('nav[role="tablist"]') ||
-		sidebar.querySelector('nav') ||
-		sidebar.querySelector('[role="tablist"]')
-
-	if (!nav) {
-		console.warn('FoundryAI | Could not find sidebar tab navigation. Trying fallback...')
-		// Fallback: Search entire sidebar for a row of tab-like icons
-		const allNavs = sidebar.querySelectorAll('nav, [data-group]')
-		if (allNavs.length > 0) {
-			injectIntoNav(allNavs[0] as HTMLElement)
+		// Add our tab descriptor to the static TABS record
+		// This makes Foundry render a brain icon in the sidebar tab bar
+		SidebarClass.TABS[MODULE_ID] = {
+			icon: 'fas fa-brain',
+			tooltip: 'FoundryAI Chat',
+			gmOnly: true,
 		}
-		return
+
+		// Monkey-patch changeTab to intercept clicks on our fake tab
+		const origChangeTab = SidebarClass.prototype.changeTab
+		SidebarClass.prototype.changeTab = function (tab: string, group: string, options: any = {}) {
+			if (tab === MODULE_ID) {
+				// Don't actually switch tabs — just open the popout window
+				openPopoutChat(ChatWindow)
+				return
+			}
+			return origChangeTab.call(this, tab, group, options)
+		}
+
+		console.log('FoundryAI | Sidebar tab registered via Sidebar.TABS')
+	} catch (err) {
+		console.error('FoundryAI | Failed to register sidebar tab:', err)
 	}
-
-	injectIntoNav(nav as HTMLElement)
-}
-
-function injectIntoNav(nav: HTMLElement) {
-	if (nav.querySelector('.foundry-ai-sidebar-btn')) return
-
-	// Detect existing tab element type (button vs a)
-	const existingTab = nav.querySelector('a[data-tab], button[data-tab], a.item, button.item')
-	const tagName = existingTab?.tagName === 'BUTTON' ? 'button' : 'a'
-
-	const btn = document.createElement(tagName)
-	btn.className = 'item foundry-ai-sidebar-btn'
-	if (tagName === 'button') btn.setAttribute('type', 'button')
-	btn.setAttribute('data-tooltip', 'FoundryAI Chat')
-	btn.setAttribute('aria-label', 'FoundryAI Chat')
-	btn.innerHTML = '<i class="fas fa-brain"></i>'
-
-	// Copy basic styles from an existing tab for consistent look
-	if (existingTab) {
-		const cs = window.getComputedStyle(existingTab)
-		btn.style.display = cs.display || 'flex'
-		btn.style.alignItems = cs.alignItems || 'center'
-		btn.style.justifyContent = cs.justifyContent || 'center'
-	}
-
-	btn.addEventListener('click', (e) => {
-		e.preventDefault()
-		e.stopPropagation()
-		e.stopImmediatePropagation()
-		openPopoutChat(ChatWindow)
-	})
-
-	nav.appendChild(btn)
-	console.log('FoundryAI | Brain icon injected into sidebar navigation')
 }
 
 // ---- Scene Controls Button ----
 
+/**
+ * Register a brain button in the scene controls (left toolbar).
+ * Uses the v13 Record-based API: controls.tokens.tools[id] = SceneControlTool
+ * Per the API: onChange(event, active) is the callback for tool activation.
+ */
 function registerSceneControlButton() {
 	Hooks.on('getSceneControlButtons', (controls: any) => {
-		// In v13, controls may be Record<string, SceneControl> or array-like
 		const tokenGroup = controls.tokens ?? controls.token
 		if (tokenGroup?.tools) {
 			tokenGroup.tools[MODULE_ID] = {
@@ -199,20 +155,10 @@ function registerSceneControlButton() {
 				icon: 'fas fa-brain',
 				button: true,
 				order: 100,
-				// v13 may use onChange or onClick depending on build
-				onChange: () => {
-					openPopoutChat(ChatWindow)
-				},
-				onClick: () => {
-					openPopoutChat(ChatWindow)
-				},
-				onclick: () => {
+				onChange: (_event: Event, _active: boolean) => {
 					openPopoutChat(ChatWindow)
 				},
 			}
-			console.log('FoundryAI | Scene control button registered')
-		} else {
-			console.warn('FoundryAI | Could not find token controls group. Available:', Object.keys(controls))
 		}
 	})
 }
