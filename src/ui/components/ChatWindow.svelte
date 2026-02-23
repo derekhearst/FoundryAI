@@ -49,9 +49,16 @@
 
   // ---- Lifecycle ----
   $effect(() => {
-    // Auto-scroll when messages change or streaming content updates
+    // Reference reactive state so this effect re-runs when they change
+    void messages.length;
+    void streamingContent;
+
+    // Auto-scroll to bottom after DOM update
     if (messagesEndEl) {
-      messagesEndEl.scrollIntoView({ behavior: 'smooth' });
+      // Use tick to wait for DOM to render, then scroll
+      requestAnimationFrame(() => {
+        messagesEndEl?.scrollIntoView({ behavior: 'smooth' });
+      });
     }
   });
 
@@ -224,7 +231,8 @@
     maxTokens: number,
     depth: number = 0,
   ) {
-    if (depth > 5) {
+    const maxDepth = getSetting('maxToolDepth');
+    if (maxDepth > 0 && depth >= maxDepth) {
       messages = [...messages, { role: 'assistant', content: '⚠️ Tool call depth limit reached.' }];
       return;
     }
@@ -237,17 +245,18 @@
     };
     messages = [...messages, assistantMsg];
 
-    // Execute each tool call
-    const toolResults: LLMMessage[] = [];
-    for (const toolCall of assistantMessage.tool_calls) {
-      const result = await executeTool(toolCall);
-      toolResults.push({
-        role: 'tool',
-        content: result,
-        tool_call_id: toolCall.id,
-        name: toolCall.function.name,
-      });
-    }
+    // Execute all tool calls in parallel
+    const toolResults: LLMMessage[] = await Promise.all(
+      assistantMessage.tool_calls.map(async (toolCall: any) => {
+        const result = await executeTool(toolCall);
+        return {
+          role: 'tool' as const,
+          content: result,
+          tool_call_id: toolCall.id,
+          name: toolCall.function.name,
+        };
+      })
+    );
 
     messages = [...messages, ...toolResults];
 
@@ -469,11 +478,33 @@
       {:else}
         {#each displayMessages as msg, i (i)}
           {#if msg.role === 'assistant' && msg.tool_calls?.length}
-            <!-- Tool call indicator -->
-            <div class="tool-call-indicator">
-              <i class="fas fa-wrench"></i>
-              Using: {msg.tool_calls.map(tc => tc.function.name).join(', ')}
-            </div>
+            <!-- Compact tool activity group: shows tool names, collapses results -->
+            <details class="tool-activity-group">
+              <summary>
+                <i class="fas fa-wrench"></i>
+                <span>Tools: {msg.tool_calls.map((tc: any) => tc.function.name).join(', ')}</span>
+                <span class="tool-count">({msg.tool_calls.length} call{msg.tool_calls.length !== 1 ? 's' : ''})</span>
+              </summary>
+              <div class="tool-results-list">
+                {#each displayMessages.slice(i + 1) as toolMsg}
+                  {#if toolMsg.role === 'tool'}
+                    <div class="tool-result-item">
+                      <span class="tool-result-name">{toolMsg.name}</span>
+                      <pre class="tool-result-data">{(() => { try { return JSON.stringify(JSON.parse(typeof toolMsg.content === 'string' ? toolMsg.content : ''), null, 2); } catch { return toolMsg.content; } })()}</pre>
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+            </details>
+          {:else if msg.role === 'tool'}
+            <!-- Tool results are rendered inside the group above, skip standalone -->
+            {#if i === 0 || !(displayMessages[i - 1]?.role === 'tool' || (displayMessages[i - 1]?.role === 'assistant' && displayMessages[i - 1]?.tool_calls?.length))}
+              <MessageBubble
+                role="tool"
+                content={typeof msg.content === 'string' ? msg.content : ''}
+                toolName={msg.name}
+              />
+            {/if}
           {:else}
             <MessageBubble
               role={msg.role as 'user' | 'assistant' | 'system' | 'tool'}
@@ -642,15 +673,77 @@
     border-radius: 3px;
   }
 
-  /* ---- Tool call indicator ---- */
-  .tool-call-indicator {
+  /* ---- Tool activity group (compact) ---- */
+  .tool-activity-group {
+    margin: 4px 8px;
+    border-left: 3px solid #f59e0b;
+    border-radius: 4px;
+    background: rgba(245, 158, 11, 0.08);
+    font-size: 0.8em;
+  }
+
+  .tool-activity-group summary {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 0.75em;
+    padding: 4px 8px;
     color: #f59e0b;
-    opacity: 0.7;
-    padding: 2px 12px;
+    cursor: pointer;
+    font-weight: 600;
+    user-select: none;
+  }
+
+  .tool-activity-group summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .tool-activity-group summary::before {
+    content: '▶';
+    font-size: 0.7em;
+    transition: transform 0.15s;
+  }
+
+  .tool-activity-group[open] summary::before {
+    transform: rotate(90deg);
+  }
+
+  .tool-count {
+    opacity: 0.6;
+    font-weight: 400;
+    font-size: 0.9em;
+  }
+
+  .tool-results-list {
+    padding: 2px 8px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .tool-result-item {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 3px;
+    padding: 4px 6px;
+  }
+
+  .tool-result-name {
+    font-weight: 600;
+    color: #f59e0b;
+    font-size: 0.85em;
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  .tool-result-data {
+    max-height: 150px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    font-size: 0.8em;
+    margin: 0;
+    background: rgba(0, 0, 0, 0.15);
+    padding: 4px;
+    border-radius: 2px;
+    color: rgba(255, 255, 255, 0.7);
   }
 
   /* ---- Setup / Empty States ---- */

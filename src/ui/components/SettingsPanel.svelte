@@ -16,6 +16,7 @@
   let embeddingModel = $state('');
   let temperature = $state(0.8);
   let maxTokens = $state(4096);
+  let maxToolDepth = $state(0);
   let streamResponses = $state(true);
   let autoIndex = $state(true);
   let enableTools = $state(true);
@@ -44,6 +45,7 @@
       embeddingModel = getSetting('embeddingModel') || 'openai/text-embedding-3-small';
       temperature = getSetting('temperature') ?? 0.8;
       maxTokens = getSetting('maxTokens') ?? 4096;
+      maxToolDepth = getSetting('maxToolDepth') ?? 0;
       streamResponses = getSetting('streamResponses') ?? true;
       autoIndex = getSetting('autoIndex') ?? true;
       enableTools = getSetting('enableTools') ?? true;
@@ -118,6 +120,7 @@
       await setSetting('embeddingModel', embeddingModel);
       await setSetting('temperature', temperature);
       await setSetting('maxTokens', maxTokens);
+      await setSetting('maxToolDepth', maxToolDepth);
       await setSetting('streamResponses', streamResponses);
       await setSetting('autoIndex', autoIndex);
       await setSetting('enableTools', enableTools);
@@ -276,6 +279,12 @@
       <div class="field">
         <label for="max-tokens">Max Tokens</label>
         <input id="max-tokens" type="number" bind:value={maxTokens} min="256" max="128000" step="256" />
+      </div>
+
+      <div class="field">
+        <label for="max-tool-depth">Max Tool Call Rounds (0 = unlimited)</label>
+        <input id="max-tool-depth" type="number" bind:value={maxToolDepth} min="0" max="50" step="1" />
+        <small class="hint">How many rounds of tool calls the AI can chain. 0 means no limit.</small>
       </div>
 
       <div class="field checkbox-field">

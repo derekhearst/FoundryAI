@@ -19,6 +19,7 @@ export interface FoundryAISettings {
 	systemPromptOverride: string
 	temperature: number
 	maxTokens: number
+	maxToolDepth: number
 	streamResponses: boolean
 	autoIndex: boolean
 	enableTools: boolean
@@ -123,6 +124,15 @@ export function registerSettings(): void {
 		config: false,
 		type: Number,
 		default: 4096,
+	})
+
+	game.settings.register(MODULE_ID, 'maxToolDepth', {
+		name: 'FOUNDRYAI.Settings.MaxToolDepth',
+		hint: 'FOUNDRYAI.Settings.MaxToolDepthHint',
+		scope: 'world',
+		config: false,
+		type: Number,
+		default: 0,
 	})
 
 	game.settings.register(MODULE_ID, 'systemPromptOverride', {
