@@ -57,9 +57,7 @@ class ChatSessionManager {
 			if (cached) return cached
 		}
 
-		const existing = game.folders?.find(
-			(f: Folder) => f.name === 'Chat History' && f.type === 'JournalEntry',
-		)
+		const existing = game.folders?.find((f: Folder) => f.name === 'Chat History' && f.type === 'JournalEntry')
 
 		if (existing) {
 			this.folderCache = existing.id
@@ -87,9 +85,13 @@ class ChatSessionManager {
 	/** Create a new chat session */
 	async createSession(name?: string, actorId?: string, actorName?: string): Promise<ChatSession> {
 		// Actor roleplay sessions go in the Actors folder
-		const folder = actorId ? (this.getActorRoleplayFolder() || await this.getChatHistoryFolder()) : await this.getChatHistoryFolder()
+		const folder = actorId
+			? this.getActorRoleplayFolder() || (await this.getChatHistoryFolder())
+			: await this.getChatHistoryFolder()
 		const now = Date.now()
-		const sessionName = name || (actorName ? `${actorName} — ${new Date(now).toLocaleString()}` : `Chat ${new Date(now).toLocaleString()}`)
+		const sessionName =
+			name ||
+			(actorName ? `${actorName} — ${new Date(now).toLocaleString()}` : `Chat ${new Date(now).toLocaleString()}`)
 
 		const journal = await JournalEntry.create({
 			name: sessionName,

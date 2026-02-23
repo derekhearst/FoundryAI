@@ -53,7 +53,9 @@ export function getSubfolder(key: SubfolderKey): any | null {
 	const name = SUBFOLDER_NAMES[key]
 	const root = game.folders?.find((f: any) => f.type === 'JournalEntry' && f.name === ROOT_FOLDER_NAME && !f.folder)
 	if (!root) return null
-	return game.folders?.find((f: any) => f.type === 'JournalEntry' && f.name === name && f.folder?.id === root.id) || null
+	return (
+		game.folders?.find((f: any) => f.type === 'JournalEntry' && f.name === name && f.folder?.id === root.id) || null
+	)
 }
 
 /**

@@ -87,8 +87,12 @@ function buildActorPersonality(ctx: ActorRoleplayContext): string {
 
 	// Core identity
 	parts.push(`You are roleplaying as **${actor.name}**, a character in this campaign.`)
-	parts.push(`Stay in character at all times. Respond as ${actor.name} would — use their voice, mannerisms, knowledge, and perspective.`)
-	parts.push(`You do NOT know things ${actor.name} wouldn't know. You have ${actor.name}'s memories, personality, and worldview.`)
+	parts.push(
+		`Stay in character at all times. Respond as ${actor.name} would — use their voice, mannerisms, knowledge, and perspective.`,
+	)
+	parts.push(
+		`You do NOT know things ${actor.name} wouldn't know. You have ${actor.name}'s memories, personality, and worldview.`,
+	)
 
 	// Type and basic stats
 	if (actor.type) parts.push(`\n**Type:** ${actor.type}`)
@@ -96,11 +100,13 @@ function buildActorPersonality(ctx: ActorRoleplayContext): string {
 	// Race, class, level (D&D 5e)
 	const details: string[] = []
 	if (system?.details?.race?.name || system?.details?.race) {
-		const raceName = typeof system.details.race === 'string' ? system.details.race : system.details.race?.name || 'Unknown'
+		const raceName =
+			typeof system.details.race === 'string' ? system.details.race : system.details.race?.name || 'Unknown'
 		details.push(`**Race:** ${raceName}`)
 	}
 	if (system?.details?.background?.name || system?.details?.background) {
-		const bg = typeof system.details.background === 'string' ? system.details.background : system.details.background?.name || ''
+		const bg =
+			typeof system.details.background === 'string' ? system.details.background : system.details.background?.name || ''
 		if (bg) details.push(`**Background:** ${bg}`)
 	}
 	if (system?.attributes?.hp) {
@@ -116,7 +122,9 @@ function buildActorPersonality(ctx: ActorRoleplayContext): string {
 				details.push(`**Class:** ${classStr}`)
 			}
 		}
-	} catch { /* ignore */ }
+	} catch {
+		/* ignore */
+	}
 
 	if (details.length > 0) parts.push(details.join(' | '))
 
@@ -128,7 +136,9 @@ function buildActorPersonality(ctx: ActorRoleplayContext): string {
 				.join(', ')
 			if (abs) parts.push(`**Abilities:** ${abs}`)
 		}
-	} catch { /* ignore */ }
+	} catch {
+		/* ignore */
+	}
 
 	// Biography / description
 	try {
@@ -140,7 +150,9 @@ function buildActorPersonality(ctx: ActorRoleplayContext): string {
 				parts.push(`\n## Biography & Personality\n${cleanBio.slice(0, 3000)}`)
 			}
 		}
-	} catch { /* ignore */ }
+	} catch {
+		/* ignore */
+	}
 
 	// Traits (D&D 5e)
 	try {
@@ -158,7 +170,9 @@ function buildActorPersonality(ctx: ActorRoleplayContext): string {
 		if (traitParts.length > 0) {
 			parts.push(`\n## Character Traits\n${traitParts.join('\n')}`)
 		}
-	} catch { /* ignore */ }
+	} catch {
+		/* ignore */
+	}
 
 	// Items/equipment summary
 	try {
@@ -171,7 +185,9 @@ function buildActorPersonality(ctx: ActorRoleplayContext): string {
 				parts.push(`\n## Notable Equipment & Abilities\n${equipped.join(', ')}`)
 			}
 		}
-	} catch { /* ignore */ }
+	} catch {
+		/* ignore */
+	}
 
 	// Roleplay instructions
 	parts.push(`\n## Roleplay Guidelines`)
