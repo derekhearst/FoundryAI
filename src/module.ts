@@ -88,13 +88,17 @@ Hooks.once('ready', async () => {
 	Hooks.on(`${MODULE_ID}.settingsChanged`, (key: string) => {
 		if (key === 'apiKey') {
 			const newKey = getSetting('apiKey')
-			if (newKey) openRouterService.configure({
-				apiKey: newKey,
-				defaultModel: getSetting('chatModel'),
-				embeddingModel: getSetting('embeddingModel'),
-			})
+			if (newKey)
+				openRouterService.configure({
+					apiKey: newKey,
+					defaultModel: getSetting('chatModel'),
+					embeddingModel: getSetting('embeddingModel'),
+				})
 		}
 	})
+
+	// Ensure standard journal folders exist
+	await ensureJournalFolders()
 
 	// Create/update the hotbar macro for easy access
 	await ensureChatMacro()
@@ -102,6 +106,32 @@ Hooks.once('ready', async () => {
 	// Notification
 	ui.notifications.info('FoundryAI is ready! Use the hotbar macro or scene controls brain icon to chat.')
 })
+
+// ---- Journal Folder Setup ----
+
+/**
+ * Ensure the standard FoundryAI journal folders exist: "Sessions" and "Notes".
+ * Creates them if missing so the LLM always has valid targets.
+ */
+async function ensureJournalFolders() {
+	try {
+		const REQUIRED_FOLDERS = ['Sessions', 'Notes']
+
+		for (const folderName of REQUIRED_FOLDERS) {
+			const exists = game.folders?.find((f: any) => f.type === 'JournalEntry' && f.name === folderName)
+			if (!exists) {
+				await Folder.create({
+					name: folderName,
+					type: 'JournalEntry',
+					parent: null,
+				} as any)
+				console.log(`FoundryAI | Created journal folder: ${folderName}`)
+			}
+		}
+	} catch (err) {
+		console.error('FoundryAI | Failed to create journal folders:', err)
+	}
+}
 
 // ---- Macro Creation ----
 

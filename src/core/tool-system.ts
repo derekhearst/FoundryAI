@@ -92,7 +92,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
 		function: {
 			name: 'create_journal',
 			description:
-				'Create a new journal entry in a specified folder. Use this for quest tracking, session recaps, notes, etc.',
+				'Create a new journal entry in a specified folder. Session recaps MUST go in the "Sessions" folder. Notes and stored data MUST go in the "Notes" folder.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -104,9 +104,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
 						type: 'string',
 						description: 'The HTML content of the journal entry. Use proper HTML formatting.',
 					},
+					folder_name: {
+						type: 'string',
+						description:
+							'The name of the journal folder to create in (e.g. "Sessions", "Notes"). The folder will be created if it does not exist.',
+					},
 					folder_id: {
 						type: 'string',
-						description: 'The folder ID to create the journal in. If omitted, creates in the root.',
+						description: 'The folder ID to create the journal in. Prefer folder_name instead.',
 					},
 				},
 				required: ['name', 'content'],
@@ -229,7 +234,7 @@ export async function executeTool(toolCall: ToolCall): Promise<string> {
 				return handleGetActor(args.actor_id)
 
 			case 'create_journal':
-				return await handleCreateJournal(args.name, args.content, args.folder_id)
+				return await handleCreateJournal(args.name, args.content, args.folder_name, args.folder_id)
 
 			case 'update_journal':
 				return await handleUpdateJournal(args.journal_id, args.content, args.page_name)
@@ -323,7 +328,31 @@ function handleGetActor(actorId: string): string {
 	})
 }
 
-async function handleCreateJournal(name: string, content: string, folderId?: string): Promise<string> {
+async function handleCreateJournal(
+	name: string,
+	content: string,
+	folderName?: string,
+	folderId?: string,
+): Promise<string> {
+	// Resolve folder: prefer folderName, fall back to folderId
+	let resolvedFolderId = folderId || null
+
+	if (folderName && !resolvedFolderId) {
+		// Find existing folder by name
+		let folder = game.folders?.find((f: any) => f.type === 'JournalEntry' && f.name === folderName)
+
+		// Create folder if it doesn't exist
+		if (!folder) {
+			folder = await Folder.create({
+				name: folderName,
+				type: 'JournalEntry',
+				parent: null,
+			} as any)
+		}
+
+		resolvedFolderId = folder?.id || null
+	}
+
 	const journalData: any = {
 		name,
 		pages: [
@@ -335,8 +364,8 @@ async function handleCreateJournal(name: string, content: string, folderId?: str
 		],
 	}
 
-	if (folderId) {
-		journalData.folder = folderId
+	if (resolvedFolderId) {
+		journalData.folder = resolvedFolderId
 	}
 
 	const journal = await JournalEntry.create(journalData)
@@ -344,7 +373,8 @@ async function handleCreateJournal(name: string, content: string, folderId?: str
 		success: true,
 		id: journal.id,
 		name: journal.name,
-		message: `Created journal entry "${name}"`,
+		folder: folderName || 'Root',
+		message: `Created journal entry "${name}" in folder "${folderName || 'Root'}"`,
 	})
 }
 

@@ -78,6 +78,26 @@ function getWorldContext(): string | null {
 		/* ignore */
 	}
 
+	// Available journals inventory
+	try {
+		const journalIndex = getJournalInventory()
+		if (journalIndex) {
+			parts.push(journalIndex)
+		}
+	} catch {
+		/* ignore */
+	}
+
+	// Available actors inventory
+	try {
+		const actorIndex = getActorInventory()
+		if (actorIndex) {
+			parts.push(actorIndex)
+		}
+	} catch {
+		/* ignore */
+	}
+
 	if (parts.length === 0) return null
 
 	return `# Campaign Context\n\n${parts.join('\n\n')}`
@@ -106,6 +126,72 @@ function getPlayerCharacters(): string[] {
 	}
 
 	return pcs
+}
+
+/**
+ * Build a compact inventory of all journal entries grouped by folder.
+ * This lets the LLM know what's available so it can fetch relevant docs.
+ */
+function getJournalInventory(): string | null {
+	if (!game.journal || game.journal.size === 0) return null
+
+	// Group journals by folder
+	const byFolder = new Map<string, Array<{ id: string; name: string; pages: number }>>()
+
+	for (const entry of game.journal.values()) {
+		const folderName = entry.folder?.name || 'Uncategorized'
+		if (!byFolder.has(folderName)) byFolder.set(folderName, [])
+		byFolder.get(folderName)!.push({
+			id: entry.id,
+			name: entry.name,
+			pages: entry.pages?.size || 0,
+		})
+	}
+
+	const lines: string[] = ['## Available Journals']
+	lines.push('Use search_journals or get_journal (with the ID) to read any of these:\n')
+
+	for (const [folder, entries] of byFolder) {
+		lines.push(`### 📁 ${folder}`)
+		for (const e of entries) {
+			lines.push(`- ${e.name} (id: ${e.id}, ${e.pages} page${e.pages !== 1 ? 's' : ''})`)
+		}
+		lines.push('')
+	}
+
+	return lines.join('\n')
+}
+
+/**
+ * Build a compact inventory of all actors grouped by folder.
+ */
+function getActorInventory(): string | null {
+	if (!game.actors || game.actors.size === 0) return null
+
+	const byFolder = new Map<string, Array<{ id: string; name: string; type: string }>>()
+
+	for (const actor of game.actors.values()) {
+		const folderName = actor.folder?.name || 'Uncategorized'
+		if (!byFolder.has(folderName)) byFolder.set(folderName, [])
+		byFolder.get(folderName)!.push({
+			id: actor.id,
+			name: actor.name,
+			type: actor.type,
+		})
+	}
+
+	const lines: string[] = ['## Available Actors']
+	lines.push('Use search_actors or get_actor (with the ID) to look up any of these:\n')
+
+	for (const [folder, actors] of byFolder) {
+		lines.push(`### 📁 ${folder}`)
+		for (const a of actors) {
+			lines.push(`- ${a.name} (id: ${a.id}, type: ${a.type})`)
+		}
+		lines.push('')
+	}
+
+	return lines.join('\n')
 }
 
 // ---- Prompt Templates ----
@@ -156,6 +242,10 @@ You have access to tools that let you interact with the Foundry VTT world. **You
 4. **Chain tool calls when needed.** For example: search_journals → get_journal → search_actors → get_actor. Use as many calls as necessary to gather complete information.
 5. **Use create_journal** when the DM asks you to write up quests, session notes, recaps, or summaries.
 6. **Use get_scene_info** when asked about the current scene, map, or tokens.
+7. **Journal folder routing — ALWAYS follow these rules when creating journals:**
+   - **Session recaps** → folder_name: "Sessions"
+   - **Notes, stored data, quest logs, reminders, or any other created content** → folder_name: "Notes"
+   - NEVER create journals in the root. Always specify the appropriate folder_name.
 
 ### When tools are NOT needed
 - General D&D rules questions (use training knowledge)
