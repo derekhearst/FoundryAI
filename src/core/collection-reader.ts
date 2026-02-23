@@ -111,6 +111,7 @@ export class CollectionReader {
 		const documents: ExtractedDocument[] = []
 		let skippedNoFolder = 0
 		let skippedWrongFolder = 0
+		const wrongFolderSamples: string[] = [] // Log first few for debugging
 
 		for (const actor of game.actors.values()) {
 			if (!actor.folder) {
@@ -119,6 +120,9 @@ export class CollectionReader {
 			}
 			if (!allFolderIds.includes(actor.folder.id)) {
 				skippedWrongFolder++
+				if (wrongFolderSamples.length < 5) {
+					wrongFolderSamples.push(`"${actor.name}" in folder "${actor.folder.name}" (${actor.folder.id})`)
+				}
 				continue
 			}
 
@@ -145,6 +149,9 @@ export class CollectionReader {
 		console.log(
 			`FoundryAI | getActorsByFolders: found ${documents.length} actors, skipped ${skippedNoFolder} (no folder), ${skippedWrongFolder} (wrong folder)`,
 		)
+		if (wrongFolderSamples.length > 0) {
+			console.log(`FoundryAI | getActorsByFolders: sample skipped actors:`, wrongFolderSamples)
+		}
 
 		return documents
 	}
@@ -483,9 +490,22 @@ export class CollectionReader {
 
 		const result = new Set<string>(folderIds)
 
+		// Debug: log all folders and their parents
+		console.log(`FoundryAI | resolveWithChildren: input IDs:`, folderIds)
+		console.log(`FoundryAI | resolveWithChildren: total folders in game:`, game.folders.size)
+		
+		// Log parent relationships for debugging
+		for (const id of folderIds) {
+			const parentFolder = game.folders.get(id)
+			if (parentFolder) {
+				console.log(`FoundryAI | resolveWithChildren: selected folder "${parentFolder.name}" (${id}), type=${parentFolder.type}`)
+			}
+		}
+
 		const addChildren = (parentId: string) => {
 			for (const folder of game.folders.values()) {
 				if (folder.parent?.id === parentId && !result.has(folder.id)) {
+					console.log(`FoundryAI | resolveWithChildren: found child "${folder.name}" (${folder.id}) of parent ${parentId}`)
 					result.add(folder.id)
 					addChildren(folder.id) // Recurse
 				}
@@ -495,6 +515,8 @@ export class CollectionReader {
 		for (const id of folderIds) {
 			addChildren(id)
 		}
+
+		console.log(`FoundryAI | resolveWithChildren: resolved to ${result.size} folders:`, Array.from(result))
 
 		return Array.from(result)
 	}
