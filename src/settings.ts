@@ -14,6 +14,7 @@ export interface FoundryAISettings {
 	embeddingModel: string
 	journalFolders: string[]
 	actorFolders: string[]
+	sceneFolders: string[]
 	chatHistoryFolder: string
 	sessionRecapFolder: string
 	systemPromptOverride: string
@@ -89,6 +90,15 @@ export function registerSettings(): void {
 	game.settings.register(MODULE_ID, 'actorFolders', {
 		name: 'FOUNDRYAI.Settings.ActorFolders',
 		hint: 'FOUNDRYAI.Settings.ActorFoldersHint',
+		scope: 'world',
+		config: false,
+		type: Array,
+		default: [],
+	})
+
+	game.settings.register(MODULE_ID, 'sceneFolders', {
+		name: 'FOUNDRYAI.Settings.SceneFolders',
+		hint: 'FOUNDRYAI.Settings.SceneFoldersHint',
 		scope: 'world',
 		config: false,
 		type: Array,

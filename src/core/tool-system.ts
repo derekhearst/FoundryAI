@@ -7,6 +7,31 @@ import { collectionReader } from './collection-reader'
 import { getSetting } from '../settings'
 import type { ToolDefinition, ToolCall } from './openrouter-service'
 
+// ---- Folder Permission Helpers ----
+// These check whether a document's folder is in the user's allowed list.
+// If no folders are selected for a type, nothing is accessible.
+
+function isJournalFolderAllowed(folderId: string | undefined | null): boolean {
+	const allowed = getSetting('journalFolders') || []
+	if (allowed.length === 0) return true // no restriction if none selected
+	if (!folderId) return false // root items excluded when filtering is active
+	return allowed.includes(folderId)
+}
+
+function isActorFolderAllowed(folderId: string | undefined | null): boolean {
+	const allowed = getSetting('actorFolders') || []
+	if (allowed.length === 0) return true
+	if (!folderId) return false
+	return allowed.includes(folderId)
+}
+
+function isSceneFolderAllowed(folderId: string | undefined | null): boolean {
+	const allowed = getSetting('sceneFolders') || []
+	if (allowed.length === 0) return true
+	if (!folderId) return false
+	return allowed.includes(folderId)
+}
+
 // ---- Tool Definitions (OpenAI function calling format) ----
 
 // == Core Tools (always available when tools enabled) ==
@@ -166,13 +191,13 @@ const CORE_TOOLS: ToolDefinition[] = [
 		type: 'function',
 		function: {
 			name: 'list_folders',
-			description: 'List all journal and actor folders available in the world.',
+			description: 'List all accessible journal, actor, and scene folders in the world.',
 			parameters: {
 				type: 'object',
 				properties: {
 					type: {
 						type: 'string',
-						enum: ['journal', 'actor', 'all'],
+						enum: ['journal', 'actor', 'scene', 'all'],
 						description: 'Filter by folder type',
 					},
 				},
@@ -1072,12 +1097,16 @@ async function handleSearchActors(query: string, maxResults?: number): Promise<s
 }
 
 function handleGetJournal(journalId: string): string {
-	const content = collectionReader.getJournalContent(journalId)
-	if (!content) {
+	const entry = game.journal?.get(journalId)
+	if (!entry) {
 		return JSON.stringify({ error: `Journal entry not found: ${journalId}` })
 	}
 
-	const entry = game.journal?.get(journalId)
+	if (!isJournalFolderAllowed(entry.folder?.id)) {
+		return JSON.stringify({ error: `Journal entry not found: ${journalId}` })
+	}
+
+	const content = collectionReader.getJournalContent(journalId)
 	return JSON.stringify({
 		id: journalId,
 		name: entry?.name || 'Unknown',
@@ -1087,12 +1116,16 @@ function handleGetJournal(journalId: string): string {
 }
 
 function handleGetActor(actorId: string): string {
-	const content = collectionReader.getActorContent(actorId)
-	if (!content) {
+	const actor = game.actors?.get(actorId)
+	if (!actor) {
 		return JSON.stringify({ error: `Actor not found: ${actorId}` })
 	}
 
-	const actor = game.actors?.get(actorId)
+	if (!isActorFolderAllowed(actor.folder?.id)) {
+		return JSON.stringify({ error: `Actor not found: ${actorId}` })
+	}
+
+	const content = collectionReader.getActorContent(actorId)
 	return JSON.stringify({
 		id: actorId,
 		name: actor?.name || 'Unknown',
@@ -1155,6 +1188,10 @@ async function handleUpdateJournal(journalId: string, content: string, pageName?
 		return JSON.stringify({ error: `Journal entry not found: ${journalId}` })
 	}
 
+	if (!isJournalFolderAllowed(entry.folder?.id)) {
+		return JSON.stringify({ error: `Journal entry not found: ${journalId}` })
+	}
+
 	const firstPage = entry.pages.contents?.[0]
 	if (!firstPage) {
 		return JSON.stringify({ error: 'Journal has no pages to update' })
@@ -1180,6 +1217,10 @@ function handleListJournalsInFolder(folderId: string): string {
 		return JSON.stringify({ error: 'Journal collection not available' })
 	}
 
+	if (!isJournalFolderAllowed(folderId)) {
+		return JSON.stringify({ error: `Folder not accessible: ${folderId}` })
+	}
+
 	const entries: Array<{ id: string; name: string }> = []
 	for (const entry of game.journal.values()) {
 		if (entry.folder?.id === folderId) {
@@ -1197,13 +1238,23 @@ function handleListJournalsInFolder(folderId: string): string {
 
 function handleListFolders(type: string): string {
 	const result: Record<string, any> = {}
+	const allowedJournalIds = getSetting('journalFolders') || []
+	const allowedActorIds = getSetting('actorFolders') || []
+	const allowedSceneIds = getSetting('sceneFolders') || []
 
 	if (type === 'journal' || type === 'all') {
-		result.journalFolders = collectionReader.getJournalFolders()
+		const all = collectionReader.getJournalFolders()
+		result.journalFolders = allowedJournalIds.length > 0 ? all.filter((f) => allowedJournalIds.includes(f.id)) : all
 	}
 
 	if (type === 'actor' || type === 'all') {
-		result.actorFolders = collectionReader.getActorFolders()
+		const all = collectionReader.getActorFolders()
+		result.actorFolders = allowedActorIds.length > 0 ? all.filter((f) => allowedActorIds.includes(f.id)) : all
+	}
+
+	if (type === 'scene' || type === 'all') {
+		const all = collectionReader.getSceneFolders()
+		result.sceneFolders = allowedSceneIds.length > 0 ? all.filter((f) => allowedSceneIds.includes(f.id)) : all
 	}
 
 	return JSON.stringify(result)
@@ -1246,6 +1297,7 @@ function handleListScenes(type?: string): string {
 	const scenes: Array<Record<string, any>> = []
 	for (const scene of game.scenes.values()) {
 		if (type === 'navigation' && !scene.navigation) continue
+		if (!isSceneFolderAllowed(scene.folder?.id)) continue
 		scenes.push({
 			id: scene.id,
 			name: scene.name,
@@ -1260,6 +1312,10 @@ function handleListScenes(type?: string): string {
 }
 
 function handleViewScene(sceneId: string): string {
+	const scene = game.scenes?.get(sceneId)
+	if (!scene) return JSON.stringify({ error: `Scene not found: ${sceneId}` })
+	if (!isSceneFolderAllowed(scene.folder?.id)) return JSON.stringify({ error: `Scene not found: ${sceneId}` })
+
 	const details = collectionReader.getSceneDetails(sceneId)
 	if (!details) return JSON.stringify({ error: `Scene not found: ${sceneId}` })
 	return details
@@ -1268,6 +1324,7 @@ function handleViewScene(sceneId: string): string {
 async function handleActivateScene(sceneId: string): Promise<string> {
 	const scene = game.scenes?.get(sceneId)
 	if (!scene) return JSON.stringify({ error: `Scene not found: ${sceneId}` })
+	if (!isSceneFolderAllowed(scene.folder?.id)) return JSON.stringify({ error: `Scene not found: ${sceneId}` })
 
 	await scene.activate()
 	return JSON.stringify({
@@ -1353,6 +1410,7 @@ function getToken(tokenId: string): TokenDocument | null {
 async function handlePlaceToken(actorId: string, x: number, y: number, hidden?: boolean): Promise<string> {
 	const actor = game.actors?.get(actorId)
 	if (!actor) return JSON.stringify({ error: `Actor not found: ${actorId}` })
+	if (!isActorFolderAllowed(actor.folder?.id)) return JSON.stringify({ error: `Actor not found: ${actorId}` })
 
 	const scene = getActiveScene()
 	if (!scene) return JSON.stringify({ error: 'No active scene' })

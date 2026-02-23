@@ -33,11 +33,13 @@
   let systemPromptOverride = $state('');
   let selectedJournalFolders = $state<string[]>([]);
   let selectedActorFolders = $state<string[]>([]);
+  let selectedSceneFolders = $state<string[]>([]);
 
   let chatModels = $state<ModelInfo[]>([]);
   let embeddingModels = $state<ModelInfo[]>([]);
   let journalFolders = $state<Array<{ id: string; name: string; path: string }>>([]);
   let actorFolders = $state<Array<{ id: string; name: string; path: string }>>([]);
+  let sceneFolders = $state<Array<{ id: string; name: string; path: string }>>([]);
 
   let isLoadingModels = $state(false);
   let isTesting = $state(false);
@@ -72,11 +74,13 @@
       systemPromptOverride = getSetting('systemPromptOverride') || '';
       selectedJournalFolders = getSetting('journalFolders') || [];
       selectedActorFolders = getSetting('actorFolders') || [];
+      selectedSceneFolders = getSetting('sceneFolders') || [];
     } catch { /* settings not registered yet */ }
 
     // Load available folders
     journalFolders = collectionReader.getJournalFolders();
     actorFolders = collectionReader.getActorFolders();
+    sceneFolders = collectionReader.getSceneFolders();
 
     // Load index stats
     embeddingService.getStats().then(stats => {
@@ -157,6 +161,7 @@
       await setSetting('systemPromptOverride', systemPromptOverride);
       await setSetting('journalFolders', selectedJournalFolders);
       await setSetting('actorFolders', selectedActorFolders);
+      await setSetting('sceneFolders', selectedSceneFolders);
 
       // Reconfigure the service with all model settings
       openRouterService.configure({ apiKey, defaultModel: chatModel, embeddingModel });
@@ -217,6 +222,7 @@
       // Save folder selections first
       await setSetting('journalFolders', selectedJournalFolders);
       await setSetting('actorFolders', selectedActorFolders);
+      await setSetting('sceneFolders', selectedSceneFolders);
 
       await embeddingService.reindexAll(selectedJournalFolders, selectedActorFolders, (progress) => {
         indexProgress = progress.message || `${progress.phase}: ${progress.current}/${progress.total}`;
@@ -374,9 +380,13 @@
       {/if}
     </section>
 
-    <!-- RAG Configuration -->
+    <!-- AI Data Access -->
     <section class="settings-section">
-      <h2><i class="fas fa-database"></i> RAG Knowledge Base</h2>
+      <h2><i class="fas fa-shield-alt"></i> AI Data Access</h2>
+      <p class="section-hint">
+        Select which folders the AI can see and search. Unselected folders are completely hidden from the AI.
+        Journal and actor folders are also used for RAG indexing.
+      </p>
 
       {#if indexStats}
         <div class="stats-bar">
@@ -391,7 +401,7 @@
       {/if}
 
       <div class="field">
-        <span class="field-label">Journal Folders to Index</span>
+        <span class="field-label"><i class="fas fa-book-open"></i> Journal Folders</span>
         <div class="folder-list">
           {#if journalFolders.length === 0}
             <span class="empty-hint">No journal folders found in this world.</span>
@@ -403,7 +413,7 @@
                   checked={selectedJournalFolders.includes(folder.id)}
                   onchange={() => { selectedJournalFolders = toggleFolder(selectedJournalFolders, folder.id); }}
                 />
-                <span title={folder.path}>{folder.name}</span>
+                <span title={folder.path}>{folder.path}</span>
               </label>
             {/each}
           {/if}
@@ -411,7 +421,7 @@
       </div>
 
       <div class="field">
-        <span class="field-label">Actor Folders to Index</span>
+        <span class="field-label"><i class="fas fa-users"></i> Actor Folders</span>
         <div class="folder-list">
           {#if actorFolders.length === 0}
             <span class="empty-hint">No actor folders found in this world.</span>
@@ -423,7 +433,27 @@
                   checked={selectedActorFolders.includes(folder.id)}
                   onchange={() => { selectedActorFolders = toggleFolder(selectedActorFolders, folder.id); }}
                 />
-                <span title={folder.path}>{folder.name}</span>
+                <span title={folder.path}>{folder.path}</span>
+              </label>
+            {/each}
+          {/if}
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="field-label"><i class="fas fa-map"></i> Scene Folders</span>
+        <div class="folder-list">
+          {#if sceneFolders.length === 0}
+            <span class="empty-hint">No scene folders found in this world.</span>
+          {:else}
+            {#each sceneFolders as folder (folder.id)}
+              <label class="folder-item">
+                <input
+                  type="checkbox"
+                  checked={selectedSceneFolders.includes(folder.id)}
+                  onchange={() => { selectedSceneFolders = toggleFolder(selectedSceneFolders, folder.id); }}
+                />
+                <span title={folder.path}>{folder.path}</span>
               </label>
             {/each}
           {/if}
@@ -507,6 +537,13 @@
   .settings-section h2 i {
     font-size: 0.85em;
     opacity: 0.7;
+  }
+
+  .section-hint {
+    font-size: 0.8em;
+    color: rgba(255, 255, 255, 0.45);
+    margin: -6px 0 12px 0;
+    line-height: 1.4;
   }
 
   .field {

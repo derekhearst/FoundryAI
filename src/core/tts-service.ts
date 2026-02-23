@@ -1,23 +1,20 @@
 /* ==========================================================================
    TTS Service
-   Manages text-to-speech playback via OpenRouter's audio API.
+   Manages text-to-speech playback via browser Speech Synthesis API.
    Provides play/stop with button state management.
    ========================================================================== */
 
-import { openRouterService } from './openrouter-service'
-import { getSetting } from '../settings'
-
-let currentAudio: HTMLAudioElement | null = null
+let currentUtterance: SpeechSynthesisUtterance | null = null
 let currentButton: HTMLElement | null = null
-let currentObjectURL: string | null = null
 
 /**
- * Play TTS for the given text. Stops any existing playback first.
- * Updates the button's icon to show loading → stop → speaker states.
+ * Play TTS for the given text using the browser's Speech Synthesis API.
+ * Stops any existing playback first.
+ * Updates the button's icon to show stop → speaker states.
  */
 export async function playTTS(text: string, button: HTMLElement): Promise<void> {
 	// If clicking the same button that's playing, toggle off
-	if (currentButton === button && currentAudio && !currentAudio.paused) {
+	if (currentButton === button && speechSynthesis.speaking) {
 		stopTTS()
 		return
 	}
@@ -25,53 +22,46 @@ export async function playTTS(text: string, button: HTMLElement): Promise<void> 
 	// Stop any existing playback
 	stopTTS()
 
+	if (!('speechSynthesis' in window)) {
+		console.warn('FoundryAI | Speech Synthesis not supported in this browser')
+		throw new Error('Text-to-speech is not supported in this browser')
+	}
+
 	currentButton = button
-	button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'
+	button.innerHTML = '<i class="fas fa-stop"></i>'
 
 	try {
-		const voice = (() => {
-			try {
-				return getSetting('ttsVoice') || 'nova'
-			} catch {
-				return 'nova'
-			}
-		})()
+		const utterance = new SpeechSynthesisUtterance(text)
+		currentUtterance = utterance
 
-		const audioData = await openRouterService.textToSpeech(text, voice)
-
-		const blob = new Blob([audioData], { type: 'audio/mpeg' })
-		const url = URL.createObjectURL(blob)
-		currentObjectURL = url
-
-		const audio = new Audio(url)
-		currentAudio = audio
-
-		button.innerHTML = '<i class="fas fa-stop"></i>'
+		// Try to pick a good English voice
+		const voices = speechSynthesis.getVoices()
+		const preferred = voices.find(
+			(v) =>
+				v.lang.startsWith('en') &&
+				(v.name.includes('Google') || v.name.includes('Microsoft') || v.name.includes('Natural')),
+		)
+		if (preferred) utterance.voice = preferred
+		utterance.rate = 1.0
+		utterance.pitch = 1.0
 
 		const cleanup = () => {
 			button.innerHTML = '<i class="fas fa-volume-up"></i>'
-			if (currentObjectURL === url) {
-				URL.revokeObjectURL(url)
-				currentObjectURL = null
-			}
-			if (currentAudio === audio) {
-				currentAudio = null
+			if (currentUtterance === utterance) {
+				currentUtterance = null
 				currentButton = null
 			}
 		}
 
-		audio.addEventListener('ended', cleanup)
-		audio.addEventListener('error', cleanup)
+		utterance.onend = cleanup
+		utterance.onerror = cleanup
 
-		await audio.play()
+		speechSynthesis.speak(utterance)
+		console.log('FoundryAI | TTS playing via browser Speech Synthesis')
 	} catch (err: any) {
 		button.innerHTML = '<i class="fas fa-volume-up"></i>'
-		currentAudio = null
+		currentUtterance = null
 		currentButton = null
-		if (currentObjectURL) {
-			URL.revokeObjectURL(currentObjectURL)
-			currentObjectURL = null
-		}
 		throw err
 	}
 }
@@ -80,17 +70,12 @@ export async function playTTS(text: string, button: HTMLElement): Promise<void> 
  * Stop any currently playing TTS audio and reset button state.
  */
 export function stopTTS(): void {
-	if (currentAudio) {
-		currentAudio.pause()
-		currentAudio.currentTime = 0
-		currentAudio = null
+	if (speechSynthesis.speaking || speechSynthesis.pending) {
+		speechSynthesis.cancel()
 	}
+	currentUtterance = null
 	if (currentButton) {
 		currentButton.innerHTML = '<i class="fas fa-volume-up"></i>'
 		currentButton = null
-	}
-	if (currentObjectURL) {
-		URL.revokeObjectURL(currentObjectURL)
-		currentObjectURL = null
 	}
 }

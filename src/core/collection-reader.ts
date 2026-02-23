@@ -251,6 +251,25 @@ export class CollectionReader {
 		return folders.sort((a, b) => a.path.localeCompare(b.path))
 	}
 
+	getSceneFolders(): Array<{ id: string; name: string; path: string; depth: number }> {
+		if (!game.folders) return []
+
+		const folders: Array<{ id: string; name: string; path: string; depth: number }> = []
+
+		for (const folder of game.folders.values()) {
+			if (folder.type === 'Scene') {
+				folders.push({
+					id: folder.id,
+					name: folder.name,
+					path: this.getFolderPath(folder),
+					depth: folder.depth || 0,
+				})
+			}
+		}
+
+		return folders.sort((a, b) => a.path.localeCompare(b.path))
+	}
+
 	private getFolderPath(folder: Folder | null): string {
 		if (!folder) return ''
 		const parts: string[] = [folder.name]
