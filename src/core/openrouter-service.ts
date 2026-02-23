@@ -168,7 +168,7 @@ export class OpenRouterService {
 
 	// ---- Chat Completions ----
 
-	async chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
+	async chatCompletion(request: ChatCompletionRequest, signal?: AbortSignal): Promise<ChatCompletionResponse> {
 		if (!this.apiKey) throw new Error('OpenRouter API key not configured')
 
 		const body: ChatCompletionRequest = {
@@ -185,6 +185,7 @@ export class OpenRouterService {
 			method: 'POST',
 			headers: this.headers,
 			body: JSON.stringify(body),
+			signal,
 		})
 
 		if (!response.ok) {
@@ -206,7 +207,11 @@ export class OpenRouterService {
 		return result
 	}
 
-	async chatCompletionStream(request: ChatCompletionRequest, onChunk: StreamCallback): Promise<void> {
+	async chatCompletionStream(
+		request: ChatCompletionRequest,
+		onChunk: StreamCallback,
+		signal?: AbortSignal,
+	): Promise<void> {
 		if (!this.apiKey) throw new Error('OpenRouter API key not configured')
 
 		const body: ChatCompletionRequest = {
@@ -223,6 +228,7 @@ export class OpenRouterService {
 			method: 'POST',
 			headers: this.headers,
 			body: JSON.stringify(body),
+			signal,
 		})
 
 		if (!response.ok) {

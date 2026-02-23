@@ -1079,21 +1079,69 @@ async function handleSearchJournals(query: string, maxResults?: number): Promise
 }
 
 async function handleSearchActors(query: string, maxResults?: number): Promise<string> {
-	const results = await embeddingService.search(query, maxResults || 5, { documentType: 'actor' })
+	const max = maxResults || 5
+	const queryLower = query.toLowerCase()
+	const results: Array<{ name: string; id: string; folder: string; relevance: number; excerpt: string }> = []
+	const allowed = getSetting('actorFolders') || []
+	
+	// Get actors from the configured folders (this handles folder resolution + access control)
+	const indexedActors = collectionReader.getActorsByFolders(allowed)
+	
+	// First pass: exact and partial name matches
+	const nameMatches: typeof results = []
+	for (const actor of indexedActors) {
+		const nameLower = actor.name.toLowerCase()
+		
+		if (nameLower === queryLower) {
+			// Exact match - highest priority
+			nameMatches.unshift({
+				name: actor.name,
+				id: actor.id,
+				folder: actor.folderName,
+				relevance: 1.0,
+				excerpt: actor.content.slice(0, 500),
+			})
+		} else if (nameLower.includes(queryLower)) {
+			// Partial match
+			nameMatches.push({
+				name: actor.name,
+				id: actor.id,
+				folder: actor.folderName,
+				relevance: 0.95,
+				excerpt: actor.content.slice(0, 500),
+			})
+		}
+		
+		if (nameMatches.length >= max) break
+	}
+	
+	results.push(...nameMatches.slice(0, max))
+	
+	// Second pass: embedding-based search if we need more results
+	if (results.length < max) {
+		const embeddingResults = await embeddingService.search(query, max - results.length, { documentType: 'actor' })
+		const existingIds = new Set(results.map(r => r.id))
+		
+		for (const r of embeddingResults) {
+			if (!existingIds.has(r.entry.documentId)) {
+				results.push({
+					name: r.entry.documentName,
+					id: r.entry.documentId,
+					folder: r.entry.folderName,
+					relevance: Math.round(r.score * 100) / 100,
+					excerpt: r.entry.text.slice(0, 500),
+				})
+				
+				if (results.length >= max) break
+			}
+		}
+	}
 
 	if (results.length === 0) {
 		return JSON.stringify({ results: [], message: 'No matching actors found.' })
 	}
 
-	return JSON.stringify({
-		results: results.map((r) => ({
-			documentId: r.entry.documentId,
-			documentName: r.entry.documentName,
-			folder: r.entry.folderName,
-			relevance: Math.round(r.score * 100) / 100,
-			excerpt: r.entry.text.slice(0, 500),
-		})),
-	})
+	return JSON.stringify({ results })
 }
 
 function handleGetJournal(journalId: string): string {
@@ -1887,6 +1935,7 @@ async function handleSearchCompendium(query: string, type?: string, maxResults?:
 	const results: Array<Record<string, any>> = []
 
 	for (const [packId, pack] of game.packs) {
+		if (!pack) continue
 		if (type && type !== 'all' && pack.documentName !== type) continue
 
 		// Ensure index is loaded

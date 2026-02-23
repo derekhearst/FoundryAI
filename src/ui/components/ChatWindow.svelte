@@ -26,6 +26,7 @@
   let inputText = $state('');
   let isGenerating = $state(false);
   let streamingContent = $state('');
+  let abortController: AbortController | null = $state(null);
   let currentSessionId = $state<string | null>(null);
   let currentSessionName = $state('New Chat');
   let messagesEndEl: HTMLDivElement | undefined = $state();
@@ -250,6 +251,17 @@ Stay fully in character for the introduction, but present the dialogue hooks and
     viewMode = 'chat';
   }
 
+  // ---- Chat Control ----
+  function stopGeneration() {
+    if (abortController) {
+      abortController.abort();
+      abortController = null;
+      isGenerating = false;
+      streamingContent = '';
+      console.log('FoundryAI | Chat generation stopped by user');
+    }
+  }
+
   // ---- Message Sending ----
   async function sendMessage() {
     const text = inputText.trim();
@@ -268,6 +280,7 @@ Stay fully in character for the introduction, but present the dialogue hooks and
     inputText = '';
     isGenerating = true;
     streamingContent = '';
+    abortController = new AbortController();
 
     // Add user message
     const userMessage: LLMMessage = { role: 'user', content: text };
@@ -295,9 +308,9 @@ Stay fully in character for the introduction, but present the dialogue hooks and
       console.log(`FoundryAI | Sending message — model: ${model}, stream: ${stream}, tools: ${useTools}, messages: ${apiMessages.length}, actor: ${currentActorId || 'none'}`);
 
       if (stream) {
-        await handleStreamingResponse(apiMessages, model, temperature, maxTokens, useTools);
+        await handleStreamingResponse(apiMessages, model, temperature, maxTokens, useTools, abortController.signal);
       } else {
-        await handleNonStreamingResponse(apiMessages, model, temperature, maxTokens, useTools);
+        await handleNonStreamingResponse(apiMessages, model, temperature, maxTokens, useTools, abortController.signal);
       }
 
       // Save full conversation to session
@@ -310,15 +323,20 @@ Stay fully in character for the introduction, but present the dialogue hooks and
         console.log(`FoundryAI | Saved conversation to session ${currentSessionId} (${messages.length} messages)`);
       }
     } catch (error: any) {
-      console.error('FoundryAI | Chat error:', error);
-      const errorMsg: LLMMessage = {
-        role: 'assistant',
-        content: `⚠️ Error: ${error.message || 'Unknown error occurred'}`,
-      };
-      messages = [...messages, errorMsg];
+      if (error.name === 'AbortError') {
+        console.log('FoundryAI | Chat generation was stopped');
+      } else {
+        console.error('FoundryAI | Chat error:', error);
+        const errorMsg: LLMMessage = {
+          role: 'assistant',
+          content: `⚠️ Error: ${error.message || 'Unknown error occurred'}`,
+        };
+        messages = [...messages, errorMsg];
+      }
     } finally {
       isGenerating = false;
       streamingContent = '';
+      abortController = null;
     }
   }
 
@@ -371,6 +389,7 @@ Stay fully in character for the introduction, but present the dialogue hooks and
     temperature: number,
     maxTokens: number,
     useTools: boolean,
+    signal?: AbortSignal,
   ) {
     let fullContent = '';
 
@@ -425,6 +444,7 @@ Stay fully in character for the introduction, but present the dialogue hooks and
         tool_choice: useTools ? 'auto' : undefined,
       },
       onChunk,
+      signal,
     );
 
     if (accumulatedToolCalls.size > 0) {
@@ -457,15 +477,19 @@ Stay fully in character for the introduction, but present the dialogue hooks and
     temperature: number,
     maxTokens: number,
     useTools: boolean,
+    signal?: AbortSignal,
   ) {
-    const response = await openRouterService.chatCompletion({
-      model,
-      messages: apiMessages,
-      temperature,
-      max_tokens: maxTokens,
-      tools: useTools ? getEnabledTools() : undefined,
-      tool_choice: useTools ? 'auto' : undefined,
-    });
+    const response = await openRouterService.chatCompletion(
+      {
+        model,
+        messages: apiMessages,
+        temperature,
+        max_tokens: maxTokens,
+        tools: useTools ? getEnabledTools() : undefined,
+        tool_choice: useTools ? 'auto' : undefined,
+      },
+      signal,
+    );
 
     const assistantMessage = response.choices?.[0]?.message;
     console.log('FoundryAI | Non-streaming response:', {
@@ -911,6 +935,15 @@ Stay fully in character for the introduction, but present the dialogue hooks and
           <i class="fas fa-paper-plane"></i>
         {/if}
       </button>
+      {#if isGenerating}
+        <button
+          class="stop-btn"
+          onclick={stopGeneration}
+          title="Stop generation"
+        >
+          <i class="fas fa-stop"></i>
+        </button>
+      {/if}
     </div>
   {/if}
 </div>
@@ -1366,6 +1399,28 @@ Stay fully in character for the introduction, but present the dialogue hooks and
   .send-btn:disabled {
     background: rgba(139, 92, 246, 0.3);
     cursor: not-allowed;
+  }
+
+  .stop-btn {
+    background: #ef4444;
+    border: none;
+    color: #fff;
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9em;
+    transition: all 0.15s;
+    flex-shrink: 0;
+    margin-left: 6px;
+  }
+
+  .stop-btn:hover {
+    background: #dc2626;
+    transform: scale(1.05);
   }
 
   /* ---- Actor Picker ---- */
