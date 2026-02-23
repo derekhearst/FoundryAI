@@ -13,29 +13,59 @@ import type { ToolDefinition, ToolCall } from './openrouter-service'
 
 function isJournalFolderAllowed(folderId: string | undefined | null): boolean {
 	const allowed = getSetting('journalFolders') || []
-	if (allowed.length === 0) return true // no restriction if none selected
-	if (!folderId) return false // root items excluded when filtering is active
+	if (allowed.length === 0) {
+		console.debug(`FoundryAI | isJournalFolderAllowed: no restrictions (allowed empty), returning true`)
+		return true // no restriction if none selected
+	}
+	if (!folderId) {
+		console.debug(`FoundryAI | isJournalFolderAllowed: folderId is null/undefined, returning false`)
+		return false // root items excluded when filtering is active
+	}
 	// Resolve to include child folders
 	const allAllowed = collectionReader.resolveWithChildren(allowed)
-	return allAllowed.includes(folderId)
+	const isAllowed = allAllowed.includes(folderId)
+	console.debug(
+		`FoundryAI | isJournalFolderAllowed: folderId="${folderId}", allowed=[${allowed.join(',')}], resolved=[${allAllowed.join(',')}], isAllowed=${isAllowed}`,
+	)
+	return isAllowed
 }
 
 function isActorFolderAllowed(folderId: string | undefined | null): boolean {
 	const allowed = getSetting('actorFolders') || []
-	if (allowed.length === 0) return true
-	if (!folderId) return false
+	if (allowed.length === 0) {
+		console.debug(`FoundryAI | isActorFolderAllowed: no restrictions (allowed empty), returning true`)
+		return true
+	}
+	if (!folderId) {
+		console.debug(`FoundryAI | isActorFolderAllowed: folderId is null/undefined, returning false`)
+		return false
+	}
 	// Resolve to include child folders
 	const allAllowed = collectionReader.resolveWithChildren(allowed)
-	return allAllowed.includes(folderId)
+	const isAllowed = allAllowed.includes(folderId)
+	console.debug(
+		`FoundryAI | isActorFolderAllowed: folderId="${folderId}", allowed=[${allowed.join(',')}], resolved=[${allAllowed.join(',')}], isAllowed=${isAllowed}`,
+	)
+	return isAllowed
 }
 
 function isSceneFolderAllowed(folderId: string | undefined | null): boolean {
 	const allowed = getSetting('sceneFolders') || []
-	if (allowed.length === 0) return true
-	if (!folderId) return false
+	if (allowed.length === 0) {
+		console.debug(`FoundryAI | isSceneFolderAllowed: no restrictions (allowed empty), returning true`)
+		return true
+	}
+	if (!folderId) {
+		console.debug(`FoundryAI | isSceneFolderAllowed: folderId is null/undefined, returning false`)
+		return false
+	}
 	// Resolve to include child folders
 	const allAllowed = collectionReader.resolveWithChildren(allowed)
-	return allAllowed.includes(folderId)
+	const isAllowed = allAllowed.includes(folderId)
+	console.debug(
+		`FoundryAI | isSceneFolderAllowed: folderId="${folderId}", allowed=[${allowed.join(',')}], resolved=[${allAllowed.join(',')}], isAllowed=${isAllowed}`,
+	)
+	return isAllowed
 }
 
 // ---- Tool Definitions (OpenAI function calling format) ----
@@ -1067,7 +1097,9 @@ export async function executeTool(toolCall: ToolCall): Promise<string> {
 // ===============================
 
 async function handleSearchJournals(query: string, maxResults?: number): Promise<string> {
+	console.log(`FoundryAI | search_journals: query="${query}", maxResults=${maxResults}`)
 	const results = await embeddingService.search(query, maxResults || 5, { documentType: 'journal' })
+	console.log(`FoundryAI | search_journals: found ${results.length} results`)
 
 	if (results.length === 0) {
 		return JSON.stringify({ results: [], message: 'No matching journals found.' })
@@ -1090,8 +1122,18 @@ async function handleSearchActors(query: string, maxResults?: number): Promise<s
 	const results: Array<{ name: string; id: string; folder: string; relevance: number; excerpt: string }> = []
 	const allowed = getSetting('actorFolders') || []
 
+	console.log(`FoundryAI | search_actors: query="${query}", allowed folders:`, allowed)
+
 	// Get actors from the configured folders (this handles folder resolution + access control)
 	const indexedActors = collectionReader.getActorsByFolders(allowed)
+
+	console.log(`FoundryAI | search_actors: found ${indexedActors.length} actors in allowed folders`)
+	if (indexedActors.length > 0) {
+		console.log(
+			`FoundryAI | search_actors: first few actors:`,
+			indexedActors.slice(0, 5).map((a) => a.name),
+		)
+	}
 
 	// First pass: exact and partial name matches
 	const nameMatches: typeof results = []
@@ -1151,12 +1193,18 @@ async function handleSearchActors(query: string, maxResults?: number): Promise<s
 }
 
 function handleGetJournal(journalId: string): string {
+	console.log(`FoundryAI | get_journal: id="${journalId}"`)
 	const entry = game.journal?.get(journalId)
 	if (!entry) {
+		console.log(`FoundryAI | get_journal: not found in game.journal`)
 		return JSON.stringify({ error: `Journal entry not found: ${journalId}` })
 	}
+	console.log(
+		`FoundryAI | get_journal: found "${entry.name}" in folder "${entry.folder?.name || 'root'}" (id: ${entry.folder?.id})`,
+	)
 
 	if (!isJournalFolderAllowed(entry.folder?.id)) {
+		console.log(`FoundryAI | get_journal: folder not allowed`)
 		return JSON.stringify({ error: `Journal entry not found: ${journalId}` })
 	}
 
@@ -1170,12 +1218,18 @@ function handleGetJournal(journalId: string): string {
 }
 
 function handleGetActor(actorId: string): string {
+	console.log(`FoundryAI | get_actor: id="${actorId}"`)
 	const actor = game.actors?.get(actorId)
 	if (!actor) {
+		console.log(`FoundryAI | get_actor: not found in game.actors`)
 		return JSON.stringify({ error: `Actor not found: ${actorId}` })
 	}
+	console.log(
+		`FoundryAI | get_actor: found "${actor.name}" in folder "${actor.folder?.name || 'root'}" (id: ${actor.folder?.id})`,
+	)
 
 	if (!isActorFolderAllowed(actor.folder?.id)) {
+		console.log(`FoundryAI | get_actor: folder not allowed`)
 		return JSON.stringify({ error: `Actor not found: ${actorId}` })
 	}
 
@@ -1237,8 +1291,12 @@ async function handleCreateJournal(
 }
 
 async function handleUpdateJournal(journalId: string, content: string, pageName?: string): Promise<string> {
+	console.log(
+		`FoundryAI | update_journal: journalId="${journalId}", pageName="${pageName}", content length=${content?.length}`,
+	)
 	const entry = game.journal?.get(journalId)
 	if (!entry) {
+		console.log(`FoundryAI | update_journal: journal not found`)
 		return JSON.stringify({ error: `Journal entry not found: ${journalId}` })
 	}
 
@@ -1267,11 +1325,13 @@ async function handleUpdateJournal(journalId: string, content: string, pageName?
 }
 
 function handleListJournalsInFolder(folderId: string): string {
+	console.log(`FoundryAI | list_journals_in_folder: folderId="${folderId}"`)
 	if (!game.journal) {
 		return JSON.stringify({ error: 'Journal collection not available' })
 	}
 
 	if (!isJournalFolderAllowed(folderId)) {
+		console.log(`FoundryAI | list_journals_in_folder: folder not allowed`)
 		return JSON.stringify({ error: `Folder not accessible: ${folderId}` })
 	}
 
@@ -1291,10 +1351,15 @@ function handleListJournalsInFolder(folderId: string): string {
 }
 
 function handleListFolders(type: string): string {
+	console.log(`FoundryAI | list_folders: type="${type}"`)
 	const result: Record<string, any> = {}
 	const allowedJournalIds = getSetting('journalFolders') || []
 	const allowedActorIds = getSetting('actorFolders') || []
 	const allowedSceneIds = getSetting('sceneFolders') || []
+
+	console.log(
+		`FoundryAI | list_folders: allowed journal=${allowedJournalIds.length}, actor=${allowedActorIds.length}, scene=${allowedSceneIds.length}`,
+	)
 
 	if (type === 'journal' || type === 'all') {
 		const all = collectionReader.getJournalFolders()
@@ -1315,10 +1380,12 @@ function handleListFolders(type: string): string {
 }
 
 function handleGetSceneInfo(): string {
+	console.log(`FoundryAI | get_scene_info: called`)
 	return collectionReader.getCurrentSceneInfo()
 }
 
 async function handleRollTable(tableId: string): Promise<string> {
+	console.log(`FoundryAI | roll_table: tableId="${tableId}"`)
 	const table = game.tables?.get(tableId)
 	if (!table) {
 		return JSON.stringify({ error: `Roll table not found: ${tableId}` })
@@ -1346,12 +1413,25 @@ async function handleRollTable(tableId: string): Promise<string> {
 // ===============================
 
 function handleListScenes(type?: string): string {
+	console.log(`FoundryAI | list_scenes: type="${type}"`)
 	if (!game.scenes) return JSON.stringify({ error: 'Scenes not available' })
 
+	const allowedFolders = getSetting('sceneFolders') || []
+	console.log(`FoundryAI | list_scenes: allowed scene folders:`, allowedFolders)
+
 	const scenes: Array<Record<string, any>> = []
+	let skippedNavigation = 0
+	let skippedFolder = 0
+
 	for (const scene of game.scenes.values()) {
-		if (type === 'navigation' && !scene.navigation) continue
-		if (!isSceneFolderAllowed(scene.folder?.id)) continue
+		if (type === 'navigation' && !scene.navigation) {
+			skippedNavigation++
+			continue
+		}
+		if (!isSceneFolderAllowed(scene.folder?.id)) {
+			skippedFolder++
+			continue
+		}
 		scenes.push({
 			id: scene.id,
 			name: scene.name,
@@ -1362,10 +1442,15 @@ function handleListScenes(type?: string): string {
 		})
 	}
 
+	console.log(
+		`FoundryAI | list_scenes: found ${scenes.length} scenes, skipped ${skippedNavigation} (navigation), ${skippedFolder} (folder)`,
+	)
+
 	return JSON.stringify({ scenes, count: scenes.length })
 }
 
 function handleViewScene(sceneId: string): string {
+	console.log(`FoundryAI | view_scene: sceneId="${sceneId}"`)
 	const scene = game.scenes?.get(sceneId)
 	if (!scene) return JSON.stringify({ error: `Scene not found: ${sceneId}` })
 	if (!isSceneFolderAllowed(scene.folder?.id)) return JSON.stringify({ error: `Scene not found: ${sceneId}` })
@@ -1376,6 +1461,7 @@ function handleViewScene(sceneId: string): string {
 }
 
 async function handleActivateScene(sceneId: string): Promise<string> {
+	console.log(`FoundryAI | activate_scene: sceneId="${sceneId}"`)
 	const scene = game.scenes?.get(sceneId)
 	if (!scene) return JSON.stringify({ error: `Scene not found: ${sceneId}` })
 	if (!isSceneFolderAllowed(scene.folder?.id)) return JSON.stringify({ error: `Scene not found: ${sceneId}` })
@@ -1392,6 +1478,7 @@ async function handleActivateScene(sceneId: string): Promise<string> {
 // ===============================
 
 async function handleRollDice(expression: string, label?: string): Promise<string> {
+	console.log(`FoundryAI | roll_dice: expression="${expression}", label="${label}"`)
 	try {
 		const roll = new Roll(expression)
 		await roll.evaluate()
@@ -1412,6 +1499,7 @@ async function handleRollDice(expression: string, label?: string): Promise<strin
 }
 
 async function handleRollCheck(actorId: string, ability: string, type: string): Promise<string> {
+	console.log(`FoundryAI | roll_check: actorId="${actorId}", ability="${ability}", type="${type}"`)
 	const actor = game.actors?.get(actorId)
 	if (!actor) return JSON.stringify({ error: `Actor not found: ${actorId}` })
 
@@ -1462,9 +1550,20 @@ function getToken(tokenId: string): TokenDocument | null {
 }
 
 async function handlePlaceToken(actorId: string, x: number, y: number, hidden?: boolean): Promise<string> {
+	console.log(`FoundryAI | place_token: actorId="${actorId}", x=${x}, y=${y}, hidden=${hidden}`)
 	const actor = game.actors?.get(actorId)
-	if (!actor) return JSON.stringify({ error: `Actor not found: ${actorId}` })
-	if (!isActorFolderAllowed(actor.folder?.id)) return JSON.stringify({ error: `Actor not found: ${actorId}` })
+	if (!actor) {
+		console.log(`FoundryAI | place_token: actor not found in game.actors`)
+		return JSON.stringify({ error: `Actor not found: ${actorId}` })
+	}
+	console.log(
+		`FoundryAI | place_token: found actor "${actor.name}" in folder "${actor.folder?.name || 'root'}" (id: ${actor.folder?.id})`,
+	)
+
+	if (!isActorFolderAllowed(actor.folder?.id)) {
+		console.log(`FoundryAI | place_token: folder not allowed`)
+		return JSON.stringify({ error: `Actor not found: ${actorId}` })
+	}
 
 	const scene = getActiveScene()
 	if (!scene) return JSON.stringify({ error: 'No active scene' })
@@ -1495,6 +1594,7 @@ async function handlePlaceToken(actorId: string, x: number, y: number, hidden?: 
 }
 
 async function handleMoveToken(tokenId: string, x: number, y: number): Promise<string> {
+	console.log(`FoundryAI | move_token: tokenId="${tokenId}", x=${x}, y=${y}`)
 	const token = getToken(tokenId)
 	if (!token) return JSON.stringify({ error: `Token not found: ${tokenId}` })
 
@@ -1509,6 +1609,7 @@ async function handleMoveToken(tokenId: string, x: number, y: number): Promise<s
 }
 
 async function handleSetTokenVisibility(tokenId: string, hidden: boolean): Promise<string> {
+	console.log(`FoundryAI | set_token_visibility: tokenId="${tokenId}", hidden=${hidden}`)
 	const token = getToken(tokenId)
 	if (!token) return JSON.stringify({ error: `Token not found: ${tokenId}` })
 
@@ -1523,6 +1624,7 @@ async function handleSetTokenVisibility(tokenId: string, hidden: boolean): Promi
 }
 
 async function handleRemoveToken(tokenId: string): Promise<string> {
+	console.log(`FoundryAI | remove_token: tokenId="${tokenId}"`)
 	const scene = getActiveScene()
 	if (!scene) return JSON.stringify({ error: 'No active scene' })
 
@@ -1539,6 +1641,7 @@ async function handleRemoveToken(tokenId: string): Promise<string> {
 }
 
 async function handleUpdateToken(args: Record<string, any>): Promise<string> {
+	console.log(`FoundryAI | update_token: args=${JSON.stringify(args)}`)
 	const token = getToken(args.token_id)
 	if (!token) return JSON.stringify({ error: `Token not found: ${args.token_id}` })
 
@@ -1570,6 +1673,7 @@ async function handleUpdateToken(args: Record<string, any>): Promise<string> {
 // ===============================
 
 async function handleStartCombat(tokenIds?: string[]): Promise<string> {
+	console.log(`FoundryAI | start_combat: called with ${tokenIds?.length || 0} tokenIds`)
 	const combat = await Combat.create({})
 	if (!combat) return JSON.stringify({ error: 'Failed to create combat' })
 
@@ -1597,6 +1701,7 @@ async function handleStartCombat(tokenIds?: string[]): Promise<string> {
 }
 
 async function handleEndCombat(): Promise<string> {
+	console.log(`FoundryAI | end_combat: called`)
 	const combat = game.combat
 	if (!combat) return JSON.stringify({ error: 'No active combat to end' })
 
@@ -1609,6 +1714,7 @@ async function handleEndCombat(): Promise<string> {
 }
 
 async function handleAddToCombat(tokenIds: string[]): Promise<string> {
+	console.log(`FoundryAI | add_to_combat: adding ${tokenIds.length} tokens`)
 	const combat = game.combat
 	if (!combat) return JSON.stringify({ error: 'No active combat. Use start_combat first.' })
 
@@ -1636,6 +1742,7 @@ async function handleAddToCombat(tokenIds: string[]): Promise<string> {
 }
 
 async function handleRemoveFromCombat(combatantIds: string[]): Promise<string> {
+	console.log(`FoundryAI | remove_from_combat: removing ${combatantIds.length} combatants`)
 	const combat = game.combat
 	if (!combat) return JSON.stringify({ error: 'No active combat' })
 
@@ -1649,6 +1756,7 @@ async function handleRemoveFromCombat(combatantIds: string[]): Promise<string> {
 }
 
 async function handleNextTurn(): Promise<string> {
+	console.log(`FoundryAI | next_turn: called`)
 	const combat = game.combat
 	if (!combat) return JSON.stringify({ error: 'No active combat' })
 
@@ -1675,6 +1783,7 @@ async function handleNextTurn(): Promise<string> {
 }
 
 async function handleRollInitiative(combatantIds?: string[]): Promise<string> {
+	console.log(`FoundryAI | roll_initiative: called with ${combatantIds?.length || 0} combatantIds`)
 	const combat = game.combat
 	if (!combat) return JSON.stringify({ error: 'No active combat' })
 
@@ -1705,6 +1814,7 @@ async function handleRollInitiative(combatantIds?: string[]): Promise<string> {
 }
 
 async function handleApplyDamage(tokenId: string, amount: number, type: string): Promise<string> {
+	console.log(`FoundryAI | apply_damage: tokenId="${tokenId}", amount=${amount}, type="${type}"`)
 	const token = getToken(tokenId)
 	if (!token) return JSON.stringify({ error: `Token not found: ${tokenId}` })
 
@@ -1738,6 +1848,7 @@ async function handleApplyDamage(tokenId: string, amount: number, type: string):
 }
 
 async function handleApplyCondition(tokenId: string, condition: string): Promise<string> {
+	console.log(`FoundryAI | apply_condition: tokenId="${tokenId}", condition="${condition}"`)
 	const token = getToken(tokenId)
 	if (!token) return JSON.stringify({ error: `Token not found: ${tokenId}` })
 
@@ -1778,6 +1889,7 @@ async function handleApplyCondition(tokenId: string, condition: string): Promise
 }
 
 async function handleRemoveCondition(tokenId: string, condition: string): Promise<string> {
+	console.log(`FoundryAI | remove_condition: tokenId="${tokenId}", condition="${condition}"`)
 	const token = getToken(tokenId)
 	if (!token) return JSON.stringify({ error: `Token not found: ${tokenId}` })
 
@@ -1811,7 +1923,9 @@ async function handleRemoveCondition(tokenId: string, condition: string): Promis
 // ===============================
 
 function handleListPlaylists(): string {
+	console.log(`FoundryAI | list_playlists: called`)
 	if (!game.playlists) return JSON.stringify({ error: 'Playlists not available' })
+	console.log(`FoundryAI | list_playlists: ${game.playlists.size} playlists available`)
 
 	const playlists: Array<Record<string, any>> = []
 	for (const playlist of game.playlists.values()) {
@@ -1833,6 +1947,7 @@ function handleListPlaylists(): string {
 }
 
 async function handlePlayPlaylist(playlistId: string): Promise<string> {
+	console.log(`FoundryAI | play_playlist: playlistId="${playlistId}"`)
 	const playlist = game.playlists?.get(playlistId)
 	if (!playlist) return JSON.stringify({ error: `Playlist not found: ${playlistId}` })
 
@@ -1846,6 +1961,7 @@ async function handlePlayPlaylist(playlistId: string): Promise<string> {
 }
 
 async function handleStopPlaylist(playlistId?: string): Promise<string> {
+	console.log(`FoundryAI | stop_playlist: playlistId="${playlistId || 'all'}"`)
 	if (playlistId) {
 		const playlist = game.playlists?.get(playlistId)
 		if (!playlist) return JSON.stringify({ error: `Playlist not found: ${playlistId}` })
@@ -1874,6 +1990,7 @@ async function handleStopPlaylist(playlistId?: string): Promise<string> {
 }
 
 async function handlePlayTrack(playlistId: string, trackName: string): Promise<string> {
+	console.log(`FoundryAI | play_track: playlistId="${playlistId}", trackName="${trackName}"`)
 	const playlist = game.playlists?.get(playlistId)
 	if (!playlist) return JSON.stringify({ error: `Playlist not found: ${playlistId}` })
 
@@ -1898,6 +2015,7 @@ async function handlePlayTrack(playlistId: string, trackName: string): Promise<s
 // ===============================
 
 async function handlePostChatMessage(content: string, speakerName?: string, whisperTo?: string[]): Promise<string> {
+	console.log(`FoundryAI | post_chat_message: content="${content.substring(0, 50)}...", speaker="${speakerName}"`)
 	const messageData: Record<string, any> = { content }
 
 	if (speakerName) {
@@ -1941,11 +2059,19 @@ async function handleSearchCompendium(query: string, type?: string, maxResults?:
 	const results: Array<Record<string, any>> = []
 	const typeFilter = type ? type.toLowerCase() : null
 
+	console.log(`FoundryAI | search_compendium: query="${query}", type="${type}", typeFilter="${typeFilter}"`)
+	console.log(`FoundryAI | search_compendium: ${game.packs.size} packs available`)
+
+	let packsSearched = 0
+	let entriesSearched = 0
+
 	for (const [packId, pack] of game.packs) {
 		if (!pack) continue
 		// Convert type to lowercase for comparison
 		const packType = pack.documentName?.toLowerCase()
 		if (typeFilter && typeFilter !== 'all' && packType !== typeFilter) continue
+
+		packsSearched++
 
 		// Ensure index is loaded
 		try {
@@ -1955,6 +2081,7 @@ async function handleSearchCompendium(query: string, type?: string, maxResults?:
 		}
 
 		for (const [, entry] of pack.index) {
+			entriesSearched++
 			if (entry.name?.toLowerCase().includes(queryLower)) {
 				results.push({
 					pack_id: packId,
@@ -1972,14 +2099,23 @@ async function handleSearchCompendium(query: string, type?: string, maxResults?:
 		if (results.length >= max) break
 	}
 
+	console.log(
+		`FoundryAI | search_compendium: searched ${packsSearched} packs, ${entriesSearched} entries, found ${results.length} matches`,
+	)
+
 	return JSON.stringify({ results, count: results.length })
 }
 
 async function handleGetCompendiumEntry(packId: string, entryId: string): Promise<string> {
+	console.log(`FoundryAI | get_compendium_entry: packId="${packId}", entryId="${entryId}"`)
 	if (!game.packs) return JSON.stringify({ error: 'Compendium packs not available' })
 
 	const pack = game.packs.get(packId)
-	if (!pack) return JSON.stringify({ error: `Pack not found: ${packId}` })
+	if (!pack) {
+		console.log(`FoundryAI | get_compendium_entry: pack not found`)
+		return JSON.stringify({ error: `Pack not found: ${packId}` })
+	}
+	console.log(`FoundryAI | get_compendium_entry: found pack "${pack.metadata.label}" (type: ${pack.documentName})`)
 
 	try {
 		const doc = await pack.getDocument(entryId)
@@ -2032,10 +2168,15 @@ async function handleGetCompendiumEntry(packId: string, entryId: string): Promis
 }
 
 async function handleImportFromCompendium(packId: string, entryId: string, folderId?: string): Promise<string> {
+	console.log(`FoundryAI | import_from_compendium: packId="${packId}", entryId="${entryId}", folderId="${folderId}"`)
 	if (!game.packs) return JSON.stringify({ error: 'Compendium packs not available' })
 
 	const pack = game.packs.get(packId)
-	if (!pack) return JSON.stringify({ error: `Pack not found: ${packId}` })
+	if (!pack) {
+		console.log(`FoundryAI | import_from_compendium: pack not found`)
+		return JSON.stringify({ error: `Pack not found: ${packId}` })
+	}
+	console.log(`FoundryAI | import_from_compendium: found pack "${pack.metadata.label}" (type: ${pack.documentName})`)
 
 	try {
 		const doc = await pack.getDocument(entryId)
@@ -2061,6 +2202,7 @@ async function handleImportFromCompendium(packId: string, entryId: string, folde
 // ===============================
 
 function handleMeasureDistance(args: Record<string, any>): string {
+	console.log(`FoundryAI | measure_distance: args=${JSON.stringify(args)}`)
 	const scene = getActiveScene()
 	if (!scene) return JSON.stringify({ error: 'No active scene' })
 
@@ -2104,6 +2246,7 @@ function handleMeasureDistance(args: Record<string, any>): string {
 }
 
 function handleTokensInRange(args: Record<string, any>): string {
+	console.log(`FoundryAI | tokens_in_range: args=${JSON.stringify(args)}`)
 	const scene = getActiveScene()
 	if (!scene) return JSON.stringify({ error: 'No active scene' })
 
@@ -2158,6 +2301,7 @@ function handleTokensInRange(args: Record<string, any>): string {
 }
 
 async function handleCreateMeasuredTemplate(args: Record<string, any>): Promise<string> {
+	console.log(`FoundryAI | create_measured_template: args=${JSON.stringify(args)}`)
 	const scene = getActiveScene()
 	if (!scene) return JSON.stringify({ error: 'No active scene' })
 

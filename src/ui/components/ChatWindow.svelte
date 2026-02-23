@@ -542,6 +542,15 @@ Stay fully in character for the introduction, but present the dialogue hooks and
     // Execute all tool calls in parallel
     const toolResults: LLMMessage[] = await Promise.all(
       assistantMessage.tool_calls.map(async (toolCall: any) => {
+        // Check abort before each tool execution
+        if (signal?.aborted) {
+          return {
+            role: 'tool' as const,
+            content: JSON.stringify({ error: 'Execution stopped by user' }),
+            tool_call_id: toolCall.id,
+            name: toolCall.function.name,
+          };
+        }
         console.log(`FoundryAI | Executing tool: ${toolCall.function?.name || 'UNDEFINED'} (id: ${toolCall.id || 'NO_ID'})`, toolCall.function?.arguments?.slice(0, 200));
         const result = await executeTool(toolCall);
         console.log(`FoundryAI | Tool result [${toolCall.function?.name}]:`, result.slice(0, 300));
@@ -576,6 +585,12 @@ Stay fully in character for the introduction, but present the dialogue hooks and
       },
       signal,
     );
+
+    // Check abort after API call returns
+    if (signal?.aborted) {
+      console.log('FoundryAI | Tool chain stopped by user (after API response)');
+      return;
+    }
 
     const nextMessage = response.choices?.[0]?.message;
 

@@ -101,14 +101,26 @@ export class CollectionReader {
 	getActorsByFolders(folderIds: string[]): ExtractedDocument[] {
 		if (!game.actors) return []
 
+		console.log(`FoundryAI | getActorsByFolders: input folderIds =`, folderIds)
+
 		// Resolve to include child folders
 		const allFolderIds = this.resolveWithChildren(folderIds)
 
+		console.log(`FoundryAI | getActorsByFolders: resolved to ${allFolderIds.length} folder IDs:`, allFolderIds)
+
 		const documents: ExtractedDocument[] = []
+		let skippedNoFolder = 0
+		let skippedWrongFolder = 0
 
 		for (const actor of game.actors.values()) {
-			if (!actor.folder) continue
-			if (!allFolderIds.includes(actor.folder.id)) continue
+			if (!actor.folder) {
+				skippedNoFolder++
+				continue
+			}
+			if (!allFolderIds.includes(actor.folder.id)) {
+				skippedWrongFolder++
+				continue
+			}
 
 			const content = this.extractActorContent(actor)
 			if (!content) continue
@@ -129,6 +141,10 @@ export class CollectionReader {
 				},
 			})
 		}
+
+		console.log(
+			`FoundryAI | getActorsByFolders: found ${documents.length} actors, skipped ${skippedNoFolder} (no folder), ${skippedWrongFolder} (wrong folder)`,
+		)
 
 		return documents
 	}
