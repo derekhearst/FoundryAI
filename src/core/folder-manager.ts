@@ -31,17 +31,21 @@ const folderIdCache: Record<string, string | null> = {}
  * Returns the root folder.
  */
 export async function ensureFoundryAIFolders(): Promise<any> {
+	console.log('FoundryAI | Bootstrapping folder structure...')
 	const root = await getOrCreateFolder(ROOT_FOLDER_NAME, null, ROOT_FOLDER_COLOR)
+	console.log(`FoundryAI | Root folder: "${root.name}" (id: ${root.id})`)
 
 	// Create subfolders under root
 	for (const key of Object.keys(SUBFOLDER_NAMES) as SubfolderKey[]) {
 		const name = SUBFOLDER_NAMES[key]
-		await getOrCreateFolder(name, root.id)
+		const sub = await getOrCreateFolder(name, root.id)
+		console.log(`FoundryAI | Subfolder "${name}": id=${sub.id}, parent=${sub.folder?.id || 'NONE'}`)
 	}
 
 	// Invalidate cache — the IDs may have just been created
 	Object.keys(folderIdCache).forEach((k) => delete folderIdCache[k])
 
+	console.log('FoundryAI | Folder bootstrap complete')
 	return root
 }
 
@@ -68,6 +72,7 @@ export function getSubfolderId(key: SubfolderKey): string | null {
 		// Verify it still exists
 		const folder = game.folders?.get(folderIdCache[cacheKey]!)
 		if (folder) return folderIdCache[cacheKey]!
+		console.warn(`FoundryAI | Cached folder for "${key}" no longer exists, clearing cache`)
 		delete folderIdCache[cacheKey]
 	}
 
@@ -76,6 +81,7 @@ export function getSubfolderId(key: SubfolderKey): string | null {
 		folderIdCache[cacheKey] = folder.id
 		return folder.id
 	}
+	console.warn(`FoundryAI | Subfolder "${key}" not found`)
 	return null
 }
 

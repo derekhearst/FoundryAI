@@ -84,6 +84,9 @@ class ChatSessionManager {
 
 	/** Create a new chat session */
 	async createSession(name?: string, actorId?: string, actorName?: string): Promise<ChatSession> {
+		console.log(
+			`FoundryAI | Creating session — name: ${name || 'auto'}, actorId: ${actorId || 'none'}, actorName: ${actorName || 'none'}`,
+		)
 		// Actor roleplay sessions go in the Actors folder
 		const folder = actorId
 			? this.getActorRoleplayFolder() || (await this.getChatHistoryFolder())
@@ -131,7 +134,10 @@ class ChatSessionManager {
 	/** Save a message to a session */
 	async saveMessage(sessionId: string, message: LLMMessage, model?: string): Promise<void> {
 		const entry = game.journal?.get(sessionId)
-		if (!entry) throw new Error(`Chat session not found: ${sessionId}`)
+		if (!entry) {
+			console.error(`FoundryAI | Chat session not found: ${sessionId}`)
+			throw new Error(`Chat session not found: ${sessionId}`)
+		}
 
 		const flags = (entry.flags?.[MODULE_ID] as Record<string, any>) || {}
 		const messages: LLMMessage[] = [...(flags.messages || []), message]

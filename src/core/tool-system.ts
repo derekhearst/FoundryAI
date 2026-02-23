@@ -900,13 +900,26 @@ export async function executeTool(toolCall: ToolCall): Promise<string> {
 	const funcName = toolCall.function.name
 	let args: Record<string, any>
 
-	try {
-		args = JSON.parse(toolCall.function.arguments)
-	} catch {
-		return JSON.stringify({ error: `Invalid arguments for tool ${funcName}` })
+	console.log(
+		`FoundryAI | executeTool called — name: "${funcName}", id: "${toolCall.id}", raw args: ${toolCall.function.arguments?.slice(0, 200)}`,
+	)
+
+	if (!funcName) {
+		console.error('FoundryAI | Tool call has no function name!', JSON.stringify(toolCall))
+		return JSON.stringify({ error: 'Tool call has no function name. This is a streaming parsing error.' })
 	}
 
 	try {
+		args = JSON.parse(toolCall.function.arguments)
+	} catch (e) {
+		console.error(`FoundryAI | Failed to parse arguments for tool "${funcName}":`, toolCall.function.arguments, e)
+		return JSON.stringify({ error: `Invalid arguments for tool ${funcName}` })
+	}
+
+	console.log(`FoundryAI | Executing tool "${funcName}" with args:`, args)
+
+	try {
+		let result: string
 		switch (funcName) {
 			// Core tools
 			case 'search_journals':
@@ -1009,9 +1022,11 @@ export async function executeTool(toolCall: ToolCall): Promise<string> {
 				return await handleCreateMeasuredTemplate(args)
 
 			default:
+				console.warn(`FoundryAI | Unknown tool called: "${funcName}"`)
 				return JSON.stringify({ error: `Unknown tool: ${funcName}` })
 		}
 	} catch (error: any) {
+		console.error(`FoundryAI | Tool "${funcName}" execution failed:`, error)
 		return JSON.stringify({ error: `Tool execution failed: ${error.message}` })
 	}
 }

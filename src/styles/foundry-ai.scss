@@ -79,7 +79,7 @@
 		}
 	}
 
-	button {
+	button:not(.header-control) {
 		font-family: 'Signika', sans-serif;
 	}
 }

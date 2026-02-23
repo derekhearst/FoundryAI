@@ -177,6 +177,10 @@ export class OpenRouterService {
 			stream: false,
 		}
 
+		console.log(
+			`FoundryAI | API chatCompletion — model: ${body.model}, messages: ${body.messages.length}, tools: ${body.tools?.length || 0}`,
+		)
+
 		const response = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
 			method: 'POST',
 			headers: this.headers,
@@ -185,12 +189,21 @@ export class OpenRouterService {
 
 		if (!response.ok) {
 			const error = await response.json().catch(() => ({ message: response.statusText }))
+			console.error(`FoundryAI | API error (${response.status}):`, error)
 			throw new Error(
 				`OpenRouter API error (${response.status}): ${error.message || error.error?.message || 'Unknown error'}`,
 			)
 		}
 
-		return response.json()
+		const result = await response.json()
+		console.log('FoundryAI | API chatCompletion response:', {
+			model: result.model,
+			finishReason: result.choices?.[0]?.finish_reason,
+			hasContent: !!result.choices?.[0]?.message?.content,
+			toolCalls: result.choices?.[0]?.message?.tool_calls?.map((tc: any) => tc.function?.name) || [],
+			usage: result.usage,
+		})
+		return result
 	}
 
 	async chatCompletionStream(request: ChatCompletionRequest, onChunk: StreamCallback): Promise<void> {
@@ -202,6 +215,10 @@ export class OpenRouterService {
 			stream: true,
 		}
 
+		console.log(
+			`FoundryAI | API stream — model: ${body.model}, messages: ${body.messages.length}, tools: ${body.tools?.length || 0}`,
+		)
+
 		const response = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
 			method: 'POST',
 			headers: this.headers,
@@ -210,6 +227,7 @@ export class OpenRouterService {
 
 		if (!response.ok) {
 			const error = await response.json().catch(() => ({ message: response.statusText }))
+			console.error(`FoundryAI | Stream API error (${response.status}):`, error)
 			throw new Error(
 				`OpenRouter API error (${response.status}): ${error.message || error.error?.message || 'Unknown error'}`,
 			)
@@ -248,8 +266,14 @@ export class OpenRouterService {
 						const choice = chunk.choices?.[0]
 
 						if (choice?.error) {
+							console.error('FoundryAI | Stream chunk error:', choice.error)
 							onChunk({ done: true, error: choice.error.message })
 							return
+						}
+
+						// Log tool call deltas for debugging
+						if (choice?.delta?.tool_calls?.length) {
+							console.debug('FoundryAI | Stream tool_call delta:', JSON.stringify(choice.delta.tool_calls))
 						}
 
 						onChunk({
@@ -259,7 +283,7 @@ export class OpenRouterService {
 							usage: chunk.usage || undefined,
 						})
 					} catch {
-						// Skip malformed JSON chunks
+						console.warn('FoundryAI | Skipping malformed SSE chunk:', data.slice(0, 200))
 					}
 				}
 			}
@@ -268,6 +292,7 @@ export class OpenRouterService {
 		}
 
 		// If we exited without [DONE], signal completion
+		console.debug('FoundryAI | Stream ended (no [DONE] received)')
 		onChunk({ done: true })
 	}
 

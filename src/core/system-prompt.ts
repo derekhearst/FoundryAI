@@ -23,6 +23,7 @@ export function buildSystemPrompt(): string {
 	// Check for user override
 	const override = getSetting('systemPromptOverride')
 	if (override && override.trim().length > 0) {
+		console.log('FoundryAI | Using custom system prompt override')
 		return override
 	}
 
@@ -42,7 +43,11 @@ export function buildSystemPrompt(): string {
 	// Add formatting instructions
 	sections.push(FORMATTING_INSTRUCTIONS)
 
-	return sections.join('\n\n')
+	const prompt = sections.join('\n\n')
+	console.log(
+		`FoundryAI | Built system prompt — ${prompt.length} chars, ${sections.length} sections, tools: ${getSetting('enableTools')}`,
+	)
+	return prompt
 }
 
 /**
@@ -50,6 +55,7 @@ export function buildSystemPrompt(): string {
  * The AI will stay in character as the specified actor.
  */
 export function buildActorRoleplayPrompt(actor: ActorRoleplayContext): string {
+	console.log(`FoundryAI | Building actor roleplay prompt for: ${actor.actorName} (${actor.actorId})`)
 	const sections: string[] = []
 
 	// Build actor-specific personality prompt
@@ -70,7 +76,9 @@ export function buildActorRoleplayPrompt(actor: ActorRoleplayContext): string {
 	// Add formatting instructions
 	sections.push(FORMATTING_INSTRUCTIONS)
 
-	return sections.join('\n\n')
+	const prompt = sections.join('\n\n')
+	console.log(`FoundryAI | Built actor RP prompt — ${prompt.length} chars, actor: ${actor.actorName}`)
+	return prompt
 }
 
 /**

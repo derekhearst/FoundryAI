@@ -201,6 +201,8 @@
       const stream = getSetting('streamResponses');
       const useTools = getSetting('enableTools');
 
+      console.log(`FoundryAI | Sending message — model: ${model}, stream: ${stream}, tools: ${useTools}, messages: ${apiMessages.length}, actor: ${currentActorId || 'none'}`);
+
       if (stream) {
         await handleStreamingResponse(apiMessages, model, temperature, maxTokens, useTools);
       } else {
@@ -214,9 +216,10 @@
           messages,
           model,
         );
+        console.log(`FoundryAI | Saved conversation to session ${currentSessionId} (${messages.length} messages)`);
       }
     } catch (error: any) {
-      console.error('FoundryAI: Chat error:', error);
+      console.error('FoundryAI | Chat error:', error);
       const errorMsg: LLMMessage = {
         role: 'assistant',
         content: `⚠️ Error: ${error.message || 'Unknown error occurred'}`,
@@ -280,15 +283,44 @@
   ) {
     let fullContent = '';
 
-    let pendingToolCalls: Partial<import('@core/openrouter-service').ToolCall>[] | undefined;
+    // Accumulated tool calls — streaming sends deltas by index
+    const accumulatedToolCalls: Map<number, { id: string; type: 'function'; function: { name: string; arguments: string } }> = new Map();
 
     const onChunk: StreamCallback = (chunk) => {
+      if (chunk.error) {
+        console.error('FoundryAI | Stream chunk error:', chunk.error);
+      }
       if (chunk.content) {
         fullContent += chunk.content;
         streamingContent = fullContent;
       }
       if (chunk.toolCalls) {
-        pendingToolCalls = chunk.toolCalls;
+        // Accumulate tool call deltas by index
+        for (const delta of chunk.toolCalls) {
+          const idx = (delta as any).index ?? 0;
+          const existing = accumulatedToolCalls.get(idx);
+
+          if (existing) {
+            // Append arguments
+            if (delta.function?.arguments) {
+              existing.function.arguments += delta.function.arguments;
+            }
+            // Update name/id if provided (shouldn't change, but be safe)
+            if (delta.id) existing.id = delta.id;
+            if (delta.function?.name) existing.function.name = delta.function.name;
+          } else {
+            // First chunk for this index — initialize
+            accumulatedToolCalls.set(idx, {
+              id: delta.id || `pending-${idx}`,
+              type: 'function',
+              function: {
+                name: delta.function?.name || '',
+                arguments: delta.function?.arguments || '',
+              },
+            });
+          }
+        }
+        console.debug('FoundryAI | Streaming tool call delta, accumulated:', [...accumulatedToolCalls.values()].map(tc => tc.function.name));
       }
     };
 
@@ -304,10 +336,23 @@
       onChunk,
     );
 
-    if (pendingToolCalls?.length) {
-      // Handle tool calls via a non-streaming follow-up
-      const assistantMessage = { content: fullContent || null, tool_calls: pendingToolCalls };
-      await handleToolCalls(assistantMessage, apiMessages, model, temperature, maxTokens);
+    if (accumulatedToolCalls.size > 0) {
+      const toolCalls = [...accumulatedToolCalls.values()];
+      // Validate all tool calls have names
+      const valid = toolCalls.filter(tc => tc.function.name);
+      const invalid = toolCalls.filter(tc => !tc.function.name);
+      if (invalid.length > 0) {
+        console.warn('FoundryAI | Dropping tool calls with missing function name:', invalid);
+      }
+      if (valid.length > 0) {
+        console.log('FoundryAI | Executing streamed tool calls:', valid.map(tc => `${tc.function.name}(${tc.function.arguments.slice(0, 100)}...)`));
+        const assistantMessage = { content: fullContent || null, tool_calls: valid };
+        await handleToolCalls(assistantMessage, apiMessages, model, temperature, maxTokens);
+      } else {
+        console.warn('FoundryAI | All streamed tool calls had missing names, treating as text response');
+        const msg: LLMMessage = { role: 'assistant', content: fullContent || '⚠️ Tool call failed — the model returned an invalid response.' };
+        messages = [...messages, msg];
+      }
     } else {
       // Normal text response
       const msg: LLMMessage = { role: 'assistant', content: fullContent };
@@ -332,6 +377,12 @@
     });
 
     const assistantMessage = response.choices?.[0]?.message;
+    console.log('FoundryAI | Non-streaming response:', {
+      hasContent: !!assistantMessage?.content,
+      toolCalls: assistantMessage?.tool_calls?.map((tc: any) => tc.function?.name) || [],
+      finishReason: response.choices?.[0]?.finish_reason,
+      usage: response.usage,
+    });
 
     if (assistantMessage?.tool_calls?.length) {
       await handleToolCalls(assistantMessage, apiMessages, model, temperature, maxTokens);
@@ -350,7 +401,10 @@
     depth: number = 0,
   ) {
     const maxDepth = getSetting('maxToolDepth');
+    console.log(`FoundryAI | handleToolCalls depth=${depth}/${maxDepth}, tools: [${assistantMessage.tool_calls?.map((tc: any) => tc.function?.name || 'UNNAMED').join(', ')}]`);
+
     if (maxDepth > 0 && depth >= maxDepth) {
+      console.warn(`FoundryAI | Tool call depth limit reached (${depth}/${maxDepth})`);
       messages = [...messages, { role: 'assistant', content: '⚠️ Tool call depth limit reached.' }];
       return;
     }
@@ -366,7 +420,9 @@
     // Execute all tool calls in parallel
     const toolResults: LLMMessage[] = await Promise.all(
       assistantMessage.tool_calls.map(async (toolCall: any) => {
+        console.log(`FoundryAI | Executing tool: ${toolCall.function?.name || 'UNDEFINED'} (id: ${toolCall.id || 'NO_ID'})`, toolCall.function?.arguments?.slice(0, 200));
         const result = await executeTool(toolCall);
+        console.log(`FoundryAI | Tool result [${toolCall.function?.name}]:`, result.slice(0, 300));
         return {
           role: 'tool' as const,
           content: result,
