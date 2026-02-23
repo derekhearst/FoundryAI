@@ -85,14 +85,26 @@ export class SvelteApplication extends foundry.applications.api.ApplicationV2 {
 		}
 	}
 
-	/** Clean up Svelte on close */
-	override _onClose(_options: Record<string, any>): void {
+	/** Clean up on close — remove element from DOM */
+	override async close(options?: Record<string, any>): Promise<this> {
+		const el = this.element
 		this.unmountSvelte()
+		const result = await super.close(options)
+		// Safety: ensure element is fully removed from DOM
+		if (el?.parentNode) el.remove()
+		return result
+	}
+
+	/** Clean up Svelte on close */
+	override _onClose(options: Record<string, any>): void {
+		this.unmountSvelte()
+		super._onClose(options)
 	}
 
 	/** Override tear down to clean up Svelte */
-	override _tearDown(_options: Record<string, any>): void {
+	override _tearDown(options: Record<string, any>): void {
 		this.unmountSvelte()
+		super._tearDown(options)
 	}
 
 	/** Update Svelte props dynamically */
@@ -187,12 +199,22 @@ export class SvelteSidebarTab extends foundry.applications.sidebar.AbstractSideb
 		}
 	}
 
-	override _onClose(_options: Record<string, any>): void {
+	override async close(options?: Record<string, any>): Promise<this> {
+		const el = this.element
 		this.unmountSvelte()
+		const result = await super.close(options)
+		if (el?.parentNode) el.remove()
+		return result
 	}
 
-	override _tearDown(_options: Record<string, any>): void {
+	override _onClose(options: Record<string, any>): void {
 		this.unmountSvelte()
+		super._onClose(options)
+	}
+
+	override _tearDown(options: Record<string, any>): void {
+		this.unmountSvelte()
+		super._tearDown(options)
 	}
 
 	/** Called when sidebar tab becomes active */

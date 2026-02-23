@@ -1,6 +1,8 @@
 <script lang="ts">
   import { micromark } from 'micromark';
   import { gfm, gfmHtml } from 'micromark-extension-gfm';
+  import { playTTS } from '@core/tts-service';
+  import { getSetting } from '../../settings';
 
   interface Props {
     role: 'user' | 'assistant' | 'system' | 'tool';
@@ -11,7 +13,12 @@
 
   let { role, content, isStreaming = false, toolName }: Props = $props();
 
-  // Render markdown then enrich Foundry @UUID links
+  // Check if TTS is enabled (safe fallback if settings not ready)
+  function isTTSEnabled(): boolean {
+    try { return getSetting('enableTTS') ?? true; } catch { return false; }
+  }
+
+  // Render markdown then enrich Foundry @UUID links and TTS buttons
   const renderedContent = $derived.by(() => {
     if (!content) return '';
     if (role === 'tool') {
@@ -41,8 +48,42 @@
       }
     );
 
+    // Inject TTS buttons on assistant messages with quotes/blockquotes
+    if (role === 'assistant' && !isStreaming && isTTSEnabled()) {
+      html = injectTTSButtons(html);
+    }
+
     return html;
   });
+
+  /**
+   * Inject TTS play buttons after NPC dialogue quotes and inside blockquotes.
+   * Dialogue pattern: <em>"text"</em> (from markdown *"text"*)
+   * Read-aloud pattern: <blockquote>text</blockquote> (from markdown > text)
+   */
+  function injectTTSButtons(html: string): string {
+    // NPC dialogue: <em>"text"</em>
+    html = html.replace(
+      /<em>"([\s\S]*?)"<\/em>/g,
+      (match, dialogueText) => {
+        const encoded = encodeURIComponent(dialogueText);
+        return `${match}<button class="tts-btn" data-tts-text="${encoded}" title="Read aloud"><i class="fas fa-volume-up"></i></button>`;
+      }
+    );
+
+    // Blockquote read-aloud text
+    html = html.replace(
+      /(<blockquote>)([\s\S]*?)(<\/blockquote>)/g,
+      (_match, open, content, close) => {
+        const plainText = content.replace(/<[^>]+>/g, '').trim();
+        if (!plainText) return _match;
+        const encoded = encodeURIComponent(plainText);
+        return `${open}${content}<button class="tts-btn tts-btn-block" data-tts-text="${encoded}" title="Read aloud"><i class="fas fa-volume-up"></i></button>${close}`;
+      }
+    );
+
+    return html;
+  }
 
   function escapeHtml(text: string): string {
     return text
@@ -51,8 +92,24 @@
       .replace(/>/g, '&gt;');
   }
 
-  /** Handle clicks on @UUID content links to open the Foundry document */
+  /** Handle clicks on @UUID content links and TTS buttons */
   function handleContentClick(event: MouseEvent) {
+    // Check for TTS button click
+    const ttsBtn = (event.target as HTMLElement).closest('.tts-btn') as HTMLElement | null;
+    if (ttsBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const text = decodeURIComponent(ttsBtn.dataset.ttsText || '');
+      if (text) {
+        playTTS(text, ttsBtn).catch((err: any) => {
+          console.error('FoundryAI | TTS failed:', err);
+          ui.notifications.error(`TTS failed: ${err.message}`);
+        });
+      }
+      return;
+    }
+
+    // Check for @UUID content link click
     const target = (event.target as HTMLElement).closest('a.content-link[data-uuid]') as HTMLElement | null;
     if (!target) return;
 
@@ -260,6 +317,45 @@
     overflow-y: auto;
     white-space: pre-wrap;
     font-size: 0.8em;
+  }
+
+  /* TTS Play Buttons */
+  .message-content :global(.tts-btn) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(139, 92, 246, 0.2);
+    border: 1px solid rgba(139, 92, 246, 0.4);
+    border-radius: 4px;
+    color: #c4b5fd;
+    cursor: pointer;
+    font-size: 0.75em;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    margin-left: 4px;
+    vertical-align: middle;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    line-height: 1;
+  }
+
+  .message-content :global(.tts-btn:hover) {
+    background: rgba(139, 92, 246, 0.4);
+    color: #e0d4ff;
+    border-color: rgba(139, 92, 246, 0.6);
+  }
+
+  .message-content :global(.tts-btn-block) {
+    display: block;
+    margin: 6px 0 0 auto;
+    width: auto;
+    height: auto;
+    padding: 2px 8px;
+    font-size: 0.7em;
+  }
+
+  .message-content :global(.tts-btn-block::before) {
+    content: 'Read aloud ';
   }
 
   .streaming-cursor {

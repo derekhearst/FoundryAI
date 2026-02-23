@@ -19,11 +19,14 @@ export class CollectionReader {
 	getJournalsByFolders(folderIds: string[]): ExtractedDocument[] {
 		if (!game.journal) return []
 
+		// Resolve to include child folders
+		const allFolderIds = this.resolveWithChildren(folderIds)
+
 		const documents: ExtractedDocument[] = []
 
 		for (const entry of game.journal.values()) {
 			if (!entry.folder) continue
-			if (!folderIds.includes(entry.folder.id)) continue
+			if (!allFolderIds.includes(entry.folder.id)) continue
 
 			const content = this.extractJournalContent(entry)
 			if (!content) continue
@@ -98,11 +101,14 @@ export class CollectionReader {
 	getActorsByFolders(folderIds: string[]): ExtractedDocument[] {
 		if (!game.actors) return []
 
+		// Resolve to include child folders
+		const allFolderIds = this.resolveWithChildren(folderIds)
+
 		const documents: ExtractedDocument[] = []
 
 		for (const actor of game.actors.values()) {
 			if (!actor.folder) continue
-			if (!folderIds.includes(actor.folder.id)) continue
+			if (!allFolderIds.includes(actor.folder.id)) continue
 
 			const content = this.extractActorContent(actor)
 			if (!content) continue
@@ -264,13 +270,111 @@ export class CollectionReader {
 
 		const parts = [`Active Scene: ${scene.name}`]
 
+		// Scene metadata
+		if (scene.grid) {
+			parts.push(`Grid: ${scene.grid.distance || 5}${scene.grid.units || 'ft'} per square`)
+		}
+		if (scene.darkness != null && scene.darkness > 0) {
+			parts.push(`Darkness Level: ${Math.round(scene.darkness * 100)}%`)
+		}
+		if (scene.weather) {
+			parts.push(`Weather: ${scene.weather}`)
+		}
+
+		// Tokens with full details
+		if (scene.tokens?.size) {
+			const tokenDetails: string[] = []
+			for (const token of scene.tokens.values()) {
+				const detail: string[] = [token.name || 'Unknown']
+
+				// Disposition
+				const disp = token.disposition === 1 ? 'friendly' : token.disposition === 0 ? 'neutral' : 'hostile'
+				detail.push(disp)
+
+				// HP/AC from actor
+				if (token.actor) {
+					const hp = token.actor.system?.attributes?.hp
+					if (hp) detail.push(`HP: ${hp.value ?? '?'}/${hp.max ?? '?'}`)
+					const ac = token.actor.system?.attributes?.ac
+					if (ac) detail.push(`AC: ${ac.value ?? ac.flat ?? '?'}`)
+				}
+
+				// Position
+				detail.push(`pos: (${token.x}, ${token.y})`)
+
+				// Status
+				if (token.hidden) detail.push('HIDDEN')
+				if (token.elevation) detail.push(`elev: ${token.elevation}`)
+
+				// Active effects/conditions
+				if (token.actor?.effects?.size) {
+					const conditions = Array.from(token.actor.effects.values())
+						.filter((e: any) => !e.disabled)
+						.map((e: any) => e.name)
+						.filter(Boolean)
+					if (conditions.length) detail.push(`conditions: ${conditions.join(', ')}`)
+				}
+
+				tokenDetails.push(`- ${detail.join(' | ')} (token_id: ${token.id})`)
+			}
+			parts.push(`\nTokens (${scene.tokens.size}):\n${tokenDetails.join('\n')}`)
+		}
+
+		// Map notes with text content
+		if (scene.notes?.size) {
+			const noteDetails: string[] = []
+			for (const note of scene.notes.values()) {
+				const label = (note as any).label || (note as any).text || note.name || 'Unnamed'
+				noteDetails.push(`- ${label} at (${note.x}, ${note.y})`)
+			}
+			parts.push(`\nMap Notes (${scene.notes.size}):\n${noteDetails.join('\n')}`)
+		}
+
+		// Lights
+		if (scene.lights?.size) {
+			parts.push(`Lights: ${scene.lights.size}`)
+		}
+
+		// Walls/Doors
+		if (scene.walls?.size) {
+			let doors = 0
+			let openDoors = 0
+			for (const wall of scene.walls.values()) {
+				if ((wall as any).door === 1 || (wall as any).door === 2) {
+					doors++
+					if ((wall as any).ds === 1) openDoors++
+				}
+			}
+			if (doors > 0) {
+				parts.push(`Doors: ${doors} (${openDoors} open)`)
+			}
+		}
+
+		return parts.join('\n')
+	}
+
+	/**
+	 * Get detailed info about a specific scene (not necessarily active)
+	 */
+	getSceneDetails(sceneId: string): string | null {
+		const scene = game.scenes?.get(sceneId)
+		if (!scene) return null
+
+		const parts = [`Scene: ${scene.name}`]
+		if (scene.active) parts.push('(ACTIVE)')
+
+		if (scene.grid) {
+			parts.push(`Grid: ${scene.grid.distance || 5}${scene.grid.units || 'ft'} per square`)
+		}
+		if (scene.darkness != null && scene.darkness > 0) {
+			parts.push(`Darkness Level: ${Math.round(scene.darkness * 100)}%`)
+		}
+
 		if (scene.tokens?.size) {
 			const tokenNames = Array.from(scene.tokens.values())
-				.map((t: any) => t.name)
+				.map((t: any) => `${t.name}${t.hidden ? ' (hidden)' : ''}`)
 				.filter(Boolean)
-			if (tokenNames.length) {
-				parts.push(`Tokens: ${tokenNames.join(', ')}`)
-			}
+			parts.push(`Tokens (${scene.tokens.size}): ${tokenNames.join(', ')}`)
 		}
 
 		if (scene.notes?.size) {
@@ -278,6 +382,86 @@ export class CollectionReader {
 		}
 
 		return parts.join('\n')
+	}
+
+	// ---- Combat Context ----
+
+	getCombatContext(): string | null {
+		const combat = game.combat
+		if (!combat || !combat.started) return null
+
+		const parts = [`Combat Active — Round ${combat.round}`]
+
+		if (combat.combatant) {
+			parts.push(`Current Turn: ${combat.combatant.name || 'Unknown'}`)
+		}
+
+		// Initiative order
+		if (combat.turns?.length) {
+			const order: string[] = []
+			for (const c of combat.turns) {
+				const detail: string[] = [c.name || 'Unknown']
+				if (c.initiative != null) detail.push(`Init: ${c.initiative}`)
+				if (c.actor) {
+					const hp = c.actor.system?.attributes?.hp
+					if (hp) detail.push(`HP: ${hp.value ?? '?'}/${hp.max ?? '?'}`)
+				}
+				if (c.defeated) detail.push('DEFEATED')
+				if (c.hidden) detail.push('HIDDEN')
+
+				const marker = c.id === combat.combatant?.id ? '>> ' : '   '
+				order.push(`${marker}${detail.join(' | ')} (combatant_id: ${c.id})`)
+			}
+			parts.push(`\nInitiative Order:\n${order.join('\n')}`)
+		}
+
+		return parts.join('\n')
+	}
+
+	// ---- Playlist Context ----
+
+	getPlaylistContext(): string | null {
+		if (!game.playlists) return null
+
+		const playing: string[] = []
+		for (const playlist of game.playlists.values()) {
+			if (playlist.playing) {
+				const tracks = Array.from(playlist.sounds?.values() || [])
+					.filter((s: any) => s.playing)
+					.map((s: any) => s.name)
+				playing.push(`🎵 ${playlist.name}${tracks.length ? ` — Playing: ${tracks.join(', ')}` : ''}`)
+			}
+		}
+
+		if (playing.length === 0) return null
+		return playing.join('\n')
+	}
+
+	// ---- Folder Resolution ----
+
+	/**
+	 * Resolve a list of folder IDs to include all descendant folders recursively.
+	 * This way selecting a parent folder automatically includes all children.
+	 */
+	resolveWithChildren(folderIds: string[]): string[] {
+		if (!game.folders || folderIds.length === 0) return folderIds
+
+		const result = new Set<string>(folderIds)
+
+		const addChildren = (parentId: string) => {
+			for (const folder of game.folders.values()) {
+				if (folder.parent?.id === parentId && !result.has(folder.id)) {
+					result.add(folder.id)
+					addChildren(folder.id) // Recurse
+				}
+			}
+		}
+
+		for (const id of folderIds) {
+			addChildren(id)
+		}
+
+		return Array.from(result)
 	}
 
 	// ---- HTML Stripping ----

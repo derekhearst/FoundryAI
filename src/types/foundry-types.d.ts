@@ -7,7 +7,10 @@ declare const game: Game
 declare const ui: UIElements
 declare const Hooks: HooksManager
 declare const CONFIG: FoundryConfig
-declare const canvas: any
+declare const canvas: Canvas
+declare const Roll: typeof RollClass
+declare const Macro: { create(data: Record<string, any>): Promise<Macro> }
+declare const fromUuidSync: (uuid: string) => FoundryDocument | null
 
 // ---- Game Interface ----
 interface Game {
@@ -23,6 +26,9 @@ interface Game {
 	tables: Collection<RollTable>
 	macros: Collection<Macro>
 	folders: Collection<Folder>
+	packs: Map<string, CompendiumCollection>
+	combat: Combat | null
+	combats: Collection<Combat>
 	settings: ClientSettings
 	modules: Map<string, Module>
 	i18n: Localization
@@ -130,20 +136,100 @@ interface Actor extends FoundryDocument {
 	img: string
 	system: Record<string, any>
 	items: Collection<Item>
-	effects: Collection<any>
-	prototypeToken: any
+	effects: Collection<ActiveEffect>
+	prototypeToken: Record<string, any>
 	hasPlayerOwner: boolean
+	rollAbilityTest?: (ability: string, options?: Record<string, any>) => Promise<any>
+	rollAbilitySave?: (ability: string, options?: Record<string, any>) => Promise<any>
+	rollSkill?: (skill: string, options?: Record<string, any>) => Promise<any>
+}
+
+interface ActiveEffect extends FoundryDocument {
+	icon: string
+	disabled: boolean
+	changes: Array<{ key: string; mode: number; value: string }>
+	duration: { rounds?: number; turns?: number; seconds?: number }
+	origin: string | null
+	statuses: Set<string>
 }
 
 interface Scene extends FoundryDocument {
 	background: { src: string | null }
 	foreground: { src: string | null }
-	tokens: Collection<any>
-	notes: Collection<any>
-	lights: Collection<any>
-	walls: Collection<any>
+	tokens: Collection<TokenDocument>
+	notes: Collection<NoteDocument>
+	lights: Collection<AmbientLightDocument>
+	walls: Collection<WallDocument>
+	drawings: Collection<DrawingDocument>
+	templates: Collection<MeasuredTemplateDocument>
 	active: boolean
 	navigation: boolean
+	grid: { type: number; size: number; distance: number; units: string }
+	dimensions: { width: number; height: number; sceneWidth: number; sceneHeight: number }
+	darkness: number
+	weather: string
+	activate(): Promise<Scene>
+	createEmbeddedDocuments(type: string, data: Record<string, any>[]): Promise<any[]>
+	deleteEmbeddedDocuments(type: string, ids: string[]): Promise<any[]>
+}
+
+interface TokenDocument extends FoundryDocument {
+	actorId: string
+	actor: Actor | null
+	x: number
+	y: number
+	elevation: number
+	hidden: boolean
+	disposition: number // -1 hostile, 0 neutral, 1 friendly
+	width: number
+	height: number
+	texture: { src: string }
+	sight: { enabled: boolean; range: number }
+	light: { dim: number; bright: number; color: string }
+	isOwner: boolean
+	object?: any // PlaceableObject on canvas
+}
+
+interface NoteDocument extends FoundryDocument {
+	entryId: string
+	x: number
+	y: number
+	text: string
+	label: string
+}
+
+interface AmbientLightDocument extends FoundryDocument {
+	x: number
+	y: number
+	config: { dim: number; bright: number; color: string }
+}
+
+interface WallDocument extends FoundryDocument {
+	c: [number, number, number, number]
+	door: number // 0=none, 1=door, 2=secret
+	ds: number // 0=closed, 1=open, 2=locked
+}
+
+interface DrawingDocument extends FoundryDocument {
+	type: string
+	x: number
+	y: number
+	shape: { width: number; height: number; points: number[] }
+	text: string
+	fillColor: string
+	strokeColor: string
+}
+
+interface MeasuredTemplateDocument extends FoundryDocument {
+	t: string // circle, cone, ray, rect
+	x: number
+	y: number
+	distance: number
+	direction: number
+	angle: number
+	width: number
+	fillColor: string
+	texture: string
 }
 
 interface Item extends FoundryDocument {
@@ -153,8 +239,19 @@ interface Item extends FoundryDocument {
 }
 
 interface Playlist extends FoundryDocument {
-	sounds: Collection<any>
+	sounds: Collection<PlaylistSound>
 	playing: boolean
+	playAll(): Promise<Playlist>
+	stopAll(): Promise<Playlist>
+	playSound(sound: PlaylistSound): Promise<void>
+}
+
+interface PlaylistSound extends FoundryDocument {
+	path: string
+	playing: boolean
+	volume: number
+	repeat: boolean
+	fade: number
 }
 
 interface RollTable extends FoundryDocument {
@@ -175,6 +272,106 @@ interface Folder extends FoundryDocument {
 	children: Folder[]
 	contents: FoundryDocument[]
 	parent: Folder | null
+}
+
+// ---- Combat ----
+interface Combat extends FoundryDocument {
+	round: number
+	turn: number
+	started: boolean
+	active: boolean
+	combatant: Combatant | null
+	combatants: Collection<Combatant>
+	scene: Scene | null
+	turns: Combatant[]
+	current: { round: number; turn: number; combatantId: string | null }
+	nextCombatant: Combatant | null
+	startCombat(): Promise<Combat>
+	nextTurn(): Promise<Combat>
+	nextRound(): Promise<Combat>
+	previousTurn(): Promise<Combat>
+	previousRound(): Promise<Combat>
+	endCombat(): Promise<Combat>
+	rollInitiative(ids: string[], options?: Record<string, any>): Promise<Combat>
+	setInitiative(combatantId: string, value: number): Promise<void>
+	createEmbeddedDocuments(type: string, data: Record<string, any>[]): Promise<Combatant[]>
+	deleteEmbeddedDocuments(type: string, ids: string[]): Promise<any[]>
+}
+
+declare namespace Combat {
+	function create(data?: Record<string, any>): Promise<Combat>
+}
+
+interface Combatant extends FoundryDocument {
+	actorId: string
+	tokenId: string
+	actor: Actor | null
+	token: TokenDocument | null
+	initiative: number | null
+	hidden: boolean
+	defeated: boolean
+	isOwner: boolean
+	hasRolled: boolean
+}
+
+// ---- Roll ----
+declare class RollClass {
+	constructor(formula: string, data?: Record<string, any>)
+	formula: string
+	total: number | undefined
+	result: string
+	terms: any[]
+	dice: any[]
+	evaluate(options?: { async?: boolean }): Promise<RollClass>
+	toMessage(data?: Record<string, any>, options?: Record<string, any>): Promise<ChatMessage>
+	static evaluate(formula: string, data?: Record<string, any>): Promise<RollClass>
+}
+
+// ---- Compendium ----
+interface CompendiumCollection {
+	metadata: { id: string; label: string; type: string; packageType: string; system?: string }
+	documentName: string
+	index: Map<string, { _id: string; name: string; img?: string; type?: string }>
+	getIndex(options?: Record<string, any>): Promise<Map<string, any>>
+	getDocument(id: string): Promise<FoundryDocument>
+	getDocuments(query?: Record<string, any>): Promise<FoundryDocument[]>
+	importDocument(doc: FoundryDocument, options?: Record<string, any>): Promise<FoundryDocument>
+}
+
+// ---- Canvas ----
+interface Canvas {
+	ready: boolean
+	scene: Scene | null
+	tokens: TokenLayer
+	drawings: DrawingLayer
+	templates: TemplateLayer
+	grid: CanvasGrid
+	dimensions: { width: number; height: number; sceneWidth: number; sceneHeight: number }
+}
+
+interface TokenLayer {
+	placeables: any[]
+	get(id: string): any | undefined
+	ownedTokens: any[]
+}
+
+interface DrawingLayer {
+	placeables: any[]
+}
+
+interface TemplateLayer {
+	placeables: any[]
+}
+
+interface CanvasGrid {
+	type: number
+	size: number
+	measureDistance(
+		origin: { x: number; y: number },
+		target: { x: number; y: number },
+		options?: Record<string, any>,
+	): number
+	measureDistances(segments: Array<{ ray: any }>, options?: Record<string, any>): number[]
 }
 
 // ---- Chat Messages ----
@@ -416,6 +613,7 @@ interface HooksManager {
 
 // ---- Config ----
 interface FoundryConfig {
+	statusEffects: Array<{ id: string; name: string; icon: string }>
 	[key: string]: any
 }
 

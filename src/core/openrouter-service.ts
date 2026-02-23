@@ -326,6 +326,35 @@ export class OpenRouterService {
 		return models.filter((m) => m.id.includes('embed') || m.architecture?.modality === 'embedding')
 	}
 
+	// ---- Text-to-Speech ----
+
+	async textToSpeech(text: string, voice: string = 'nova', model: string = 'openai/tts-1'): Promise<ArrayBuffer> {
+		if (!this.apiKey) throw new Error('OpenRouter API key not configured')
+
+		const response = await fetch(`${OPENROUTER_BASE}/audio/speech`, {
+			method: 'POST',
+			headers: this.headers,
+			body: JSON.stringify({
+				model,
+				input: text,
+				voice,
+			}),
+		})
+
+		if (!response.ok) {
+			let errorMessage = response.statusText
+			try {
+				const error = await response.json()
+				errorMessage = error.message || error.error?.message || errorMessage
+			} catch {
+				/* not JSON */
+			}
+			throw new Error(`TTS error (${response.status}): ${errorMessage}`)
+		}
+
+		return response.arrayBuffer()
+	}
+
 	// ---- Connection Test ----
 
 	async testConnection(): Promise<{ success: boolean; message: string; model?: string }> {

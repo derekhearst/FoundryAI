@@ -24,6 +24,16 @@ export interface FoundryAISettings {
 	autoIndex: boolean
 	enableTools: boolean
 	showSidebarTab: boolean
+	enableSceneTools: boolean
+	enableDiceTools: boolean
+	enableTokenTools: boolean
+	enableCombatTools: boolean
+	enableAudioTools: boolean
+	enableChatTools: boolean
+	enableCompendiumTools: boolean
+	enableSpatialTools: boolean
+	enableTTS: boolean
+	ttsVoice: string
 }
 
 export function registerSettings(): void {
@@ -180,6 +190,100 @@ export function registerSettings(): void {
 		config: false,
 		type: Boolean,
 		default: true,
+	})
+
+	// ---- Tool Category Toggles ----
+
+	game.settings.register(MODULE_ID, 'enableSceneTools', {
+		name: 'Scene Tools',
+		hint: 'Allow the AI to list, view, and activate scenes',
+		scope: 'world',
+		config: false,
+		type: Boolean,
+		default: true,
+	})
+
+	game.settings.register(MODULE_ID, 'enableDiceTools', {
+		name: 'Dice Tools',
+		hint: 'Allow the AI to roll dice and ability checks',
+		scope: 'world',
+		config: false,
+		type: Boolean,
+		default: true,
+	})
+
+	game.settings.register(MODULE_ID, 'enableTokenTools', {
+		name: 'Token Tools',
+		hint: 'Allow the AI to place, move, and manage tokens on the scene',
+		scope: 'world',
+		config: false,
+		type: Boolean,
+		default: true,
+	})
+
+	game.settings.register(MODULE_ID, 'enableCombatTools', {
+		name: 'Combat Tools',
+		hint: 'Allow the AI to manage combat encounters, initiative, damage, and conditions',
+		scope: 'world',
+		config: false,
+		type: Boolean,
+		default: true,
+	})
+
+	game.settings.register(MODULE_ID, 'enableAudioTools', {
+		name: 'Audio Tools',
+		hint: 'Allow the AI to control playlists and tracks',
+		scope: 'world',
+		config: false,
+		type: Boolean,
+		default: true,
+	})
+
+	game.settings.register(MODULE_ID, 'enableChatTools', {
+		name: 'Chat Tools',
+		hint: 'Allow the AI to post messages to chat as NPCs or narration',
+		scope: 'world',
+		config: false,
+		type: Boolean,
+		default: true,
+	})
+
+	game.settings.register(MODULE_ID, 'enableCompendiumTools', {
+		name: 'Compendium Tools',
+		hint: 'Allow the AI to search, read, and import from compendium packs',
+		scope: 'world',
+		config: false,
+		type: Boolean,
+		default: true,
+	})
+
+	game.settings.register(MODULE_ID, 'enableSpatialTools', {
+		name: 'Spatial Tools',
+		hint: 'Allow the AI to measure distances, find tokens in range, and place templates',
+		scope: 'world',
+		config: false,
+		type: Boolean,
+		default: true,
+	})
+
+	// ---- TTS Settings ----
+
+	game.settings.register(MODULE_ID, 'enableTTS', {
+		name: 'Enable Text-to-Speech',
+		hint: 'Show read-aloud buttons on NPC dialogue and blockquotes',
+		scope: 'world',
+		config: false,
+		type: Boolean,
+		default: true,
+	})
+
+	game.settings.register(MODULE_ID, 'ttsVoice', {
+		name: 'TTS Voice',
+		hint: 'The voice to use for text-to-speech',
+		scope: 'world',
+		config: false,
+		type: String,
+		default: 'nova',
 	})
 
 	// ---- Settings Menu ----

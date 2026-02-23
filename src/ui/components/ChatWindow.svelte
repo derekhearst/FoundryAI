@@ -5,7 +5,7 @@
   import { chatSessionManager } from '@core/chat-session-manager';
   import { sessionRecapManager, type RecapProgress } from '@core/session-recap-manager';
   import { embeddingService } from '@core/embedding-service';
-  import { TOOL_DEFINITIONS, executeTool } from '@core/tool-system';
+  import { getEnabledTools, executeTool } from '@core/tool-system';
   import { buildSystemPrompt } from '@core/system-prompt';
   import { getSetting } from '../../settings';
   import { openSettingsDialog } from '../svelte-application';
@@ -274,7 +274,7 @@
         messages: apiMessages,
         temperature,
         max_tokens: maxTokens,
-        tools: useTools ? TOOL_DEFINITIONS : undefined,
+        tools: useTools ? getEnabledTools() : undefined,
         tool_choice: useTools ? 'auto' : undefined,
       },
       onChunk,
@@ -303,7 +303,7 @@
       messages: apiMessages,
       temperature,
       max_tokens: maxTokens,
-      tools: useTools ? TOOL_DEFINITIONS : undefined,
+      tools: useTools ? getEnabledTools() : undefined,
       tool_choice: useTools ? 'auto' : undefined,
     });
 
@@ -362,7 +362,7 @@
       messages: continuedMessages,
       temperature,
       max_tokens: maxTokens,
-      tools: TOOL_DEFINITIONS,
+      tools: getEnabledTools(),
       tool_choice: 'auto',
     });
 

@@ -20,6 +20,16 @@
   let streamResponses = $state(true);
   let autoIndex = $state(true);
   let enableTools = $state(true);
+  let enableSceneTools = $state(true);
+  let enableDiceTools = $state(true);
+  let enableTokenTools = $state(true);
+  let enableCombatTools = $state(true);
+  let enableAudioTools = $state(true);
+  let enableChatTools = $state(true);
+  let enableCompendiumTools = $state(true);
+  let enableSpatialTools = $state(true);
+  let enableTTS = $state(true);
+  let ttsVoice = $state('nova');
   let systemPromptOverride = $state('');
   let selectedJournalFolders = $state<string[]>([]);
   let selectedActorFolders = $state<string[]>([]);
@@ -49,6 +59,16 @@
       streamResponses = getSetting('streamResponses') ?? true;
       autoIndex = getSetting('autoIndex') ?? true;
       enableTools = getSetting('enableTools') ?? true;
+      enableSceneTools = getSetting('enableSceneTools') ?? true;
+      enableDiceTools = getSetting('enableDiceTools') ?? true;
+      enableTokenTools = getSetting('enableTokenTools') ?? true;
+      enableCombatTools = getSetting('enableCombatTools') ?? true;
+      enableAudioTools = getSetting('enableAudioTools') ?? true;
+      enableChatTools = getSetting('enableChatTools') ?? true;
+      enableCompendiumTools = getSetting('enableCompendiumTools') ?? true;
+      enableSpatialTools = getSetting('enableSpatialTools') ?? true;
+      enableTTS = getSetting('enableTTS') ?? true;
+      ttsVoice = getSetting('ttsVoice') || 'nova';
       systemPromptOverride = getSetting('systemPromptOverride') || '';
       selectedJournalFolders = getSetting('journalFolders') || [];
       selectedActorFolders = getSetting('actorFolders') || [];
@@ -124,6 +144,16 @@
       await setSetting('streamResponses', streamResponses);
       await setSetting('autoIndex', autoIndex);
       await setSetting('enableTools', enableTools);
+      await setSetting('enableSceneTools', enableSceneTools);
+      await setSetting('enableDiceTools', enableDiceTools);
+      await setSetting('enableTokenTools', enableTokenTools);
+      await setSetting('enableCombatTools', enableCombatTools);
+      await setSetting('enableAudioTools', enableAudioTools);
+      await setSetting('enableChatTools', enableChatTools);
+      await setSetting('enableCompendiumTools', enableCompendiumTools);
+      await setSetting('enableSpatialTools', enableSpatialTools);
+      await setSetting('enableTTS', enableTTS);
+      await setSetting('ttsVoice', ttsVoice);
       await setSetting('systemPromptOverride', systemPromptOverride);
       await setSetting('journalFolders', selectedJournalFolders);
       await setSetting('actorFolders', selectedActorFolders);
@@ -301,12 +331,47 @@
         </label>
       </div>
 
+      {#if enableTools}
+      <div class="tool-category-toggles" style="margin-left: 1.5rem; display: flex; flex-direction: column; gap: 0.25rem;">
+        <small style="color: var(--color-text-dark-5); margin-bottom: 0.25rem;">Tool Categories:</small>
+        <label><input type="checkbox" bind:checked={enableSceneTools} /> Scene Tools (list, view, activate scenes)</label>
+        <label><input type="checkbox" bind:checked={enableDiceTools} /> Dice Tools (roll dice, ability checks)</label>
+        <label><input type="checkbox" bind:checked={enableTokenTools} /> Token Tools (place, move, hide tokens)</label>
+        <label><input type="checkbox" bind:checked={enableCombatTools} /> Combat Tools (initiative, damage, conditions)</label>
+        <label><input type="checkbox" bind:checked={enableAudioTools} /> Audio Tools (playlists, tracks)</label>
+        <label><input type="checkbox" bind:checked={enableChatTools} /> Chat Tools (post messages, NPC dialogue)</label>
+        <label><input type="checkbox" bind:checked={enableCompendiumTools} /> Compendium Tools (search, import entries)</label>
+        <label><input type="checkbox" bind:checked={enableSpatialTools} /> Spatial Tools (measure distance, templates)</label>
+      </div>
+      {/if}
+
       <div class="field checkbox-field">
         <label>
           <input type="checkbox" bind:checked={autoIndex} />
           Auto-index on startup
         </label>
       </div>
+
+      <div class="field checkbox-field">
+        <label>
+          <input type="checkbox" bind:checked={enableTTS} />
+          Enable Text-to-Speech on quotes
+        </label>
+      </div>
+
+      {#if enableTTS}
+      <div class="field" style="margin-left: 1.5rem;">
+        <label for="tts-voice">TTS Voice</label>
+        <select id="tts-voice" bind:value={ttsVoice}>
+          <option value="alloy">Alloy</option>
+          <option value="echo">Echo</option>
+          <option value="fable">Fable</option>
+          <option value="onyx">Onyx</option>
+          <option value="nova">Nova</option>
+          <option value="shimmer">Shimmer</option>
+        </select>
+      </div>
+      {/if}
     </section>
 
     <!-- RAG Configuration -->
