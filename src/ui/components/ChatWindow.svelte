@@ -170,7 +170,9 @@
 4. **Dialogue hooks** — topics players might bring up and how you'd respond (e.g. "If asked about the war...", "If asked about the artifact...")
 5. **Persuasion & social checks** — list 3-5 things players might try to convince you of, and for each one state the type of check (Persuasion, Intimidation, Deception, etc.) and the DC (difficulty class) required. Format as a table.
 
-Stay fully in character for the introduction, but present the dialogue hooks and check DCs in a helpful OOC (out-of-character) section at the end marked with --- so the DM can reference it.`,
+Stay fully in character for the introduction, but present the dialogue hooks and check DCs in a helpful OOC (out-of-character) section at the end marked with --- so the DM can reference it.
+
+IMPORTANT: You already have all the information you need about this character from the system prompt. Do NOT output any tool calls, function calls, or special syntax like [TOOL_CALL]. Simply write your introduction using the character information provided.`,
       };
 
       const apiMessages: LLMMessage[] = [
@@ -378,6 +380,41 @@ Stay fully in character for the introduction, but present the dialogue hooks and
     if (!userText) return;
 
     // Truncate everything from this user message onward and resend
+    messages = messages.slice(0, userIndex);
+    inputText = userText;
+    await sendMessage();
+  }
+
+  /**
+   * Regenerate an assistant response. 
+   * If index is provided, removes everything from that message onward.
+   * If no prior user message exists (e.g. actor intro), regenerates the intro.
+   */
+  async function regenerateAssistantMessage(index: number) {
+    // Find if there's a user message before this assistant message
+    let userIndex = -1;
+    for (let i = index - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        userIndex = i;
+        break;
+      }
+    }
+
+    if (userIndex === -1) {
+      // No user message found — this is likely an actor intro
+      // Regenerate actor intro if we have an active actor roleplay
+      if (currentActorId && currentActorName) {
+        messages = [];
+        await generateCharacterIntro(currentActorId, currentActorName);
+        return;
+      }
+      // No actor context either — just clear and start fresh
+      messages = [];
+      return;
+    }
+
+    // There was a user message — truncate to that message and resend
+    const userText = typeof messages[userIndex].content === 'string' ? messages[userIndex].content : '';
     messages = messages.slice(0, userIndex);
     inputText = userText;
     await sendMessage();
@@ -913,11 +950,21 @@ Stay fully in character for the introduction, but present the dialogue hooks and
               </div>
             {/if}
           {:else}
-            <MessageBubble
-              role={item.msg.role as 'user' | 'assistant' | 'system' | 'tool'}
-              content={typeof item.msg.content === 'string' ? item.msg.content : ''}
-              toolName={item.msg.name}
-            />
+            <!-- Assistant/system messages with regenerate action -->
+            <div class="assistant-message-wrapper">
+              <MessageBubble
+                role={item.msg.role as 'user' | 'assistant' | 'system' | 'tool'}
+                content={typeof item.msg.content === 'string' ? item.msg.content : ''}
+                toolName={item.msg.name}
+              />
+              {#if item.msg.role === 'assistant' && !isGenerating}
+                <div class="message-actions">
+                  <button class="action-btn" title="Regenerate response" onclick={() => regenerateAssistantMessage(item.index)}>
+                    <i class="fas fa-sync-alt"></i>
+                  </button>
+                </div>
+              {/if}
+            </div>
           {/if}
         {/each}
 
@@ -1168,6 +1215,15 @@ Stay fully in character for the introduction, but present the dialogue hooks and
   }
 
   .user-message-wrapper:hover .message-actions {
+    opacity: 1;
+  }
+
+  /* ---- Assistant message wrapper with actions ---- */
+  .assistant-message-wrapper {
+    position: relative;
+  }
+
+  .assistant-message-wrapper:hover .message-actions {
     opacity: 1;
   }
 
