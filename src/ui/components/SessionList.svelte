@@ -82,7 +82,12 @@
           onkeydown={(e) => { if (e.key === 'Enter') onSelectSession(session.id); }}
         >
           <div class="session-info">
-            <span class="session-name" title={session.name}>{session.name}</span>
+            <span class="session-name" title={session.name}>
+              {#if session.actorId}
+                <i class="fas fa-theater-masks actor-badge" title="Actor Roleplay: {session.actorName}"></i>
+              {/if}
+              {session.name}
+            </span>
             <span class="session-meta">
               {formatDate(session.updatedAt)} · {session.messageCount} msgs
             </span>
@@ -211,6 +216,12 @@
   .delete-btn:hover {
     color: #ef4444;
     background: rgba(239, 68, 68, 0.15);
+  }
+
+  .actor-badge {
+    color: #f59e0b;
+    font-size: 0.8em;
+    margin-right: 3px;
   }
 
   .loading,

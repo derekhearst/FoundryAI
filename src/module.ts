@@ -8,6 +8,7 @@ import { openRouterService } from '@core/openrouter-service'
 import { embeddingService } from '@core/embedding-service'
 import { chatSessionManager } from '@core/chat-session-manager'
 import { sessionRecapManager } from '@core/session-recap-manager'
+import { ensureFoundryAIFolders } from '@core/folder-manager'
 import { openPopoutChat } from '@ui/svelte-application'
 import { buildSystemPrompt } from '@core/system-prompt'
 import ChatWindow from '@ui/components/ChatWindow.svelte'
@@ -98,7 +99,7 @@ Hooks.once('ready', async () => {
 	})
 
 	// Ensure standard journal folders exist
-	await ensureJournalFolders()
+	await ensureFoundryAIFolders()
 
 	// Create/update the hotbar macro for easy access
 	await ensureChatMacro()
@@ -106,32 +107,6 @@ Hooks.once('ready', async () => {
 	// Notification
 	ui.notifications.info('FoundryAI is ready! Use the hotbar macro or scene controls brain icon to chat.')
 })
-
-// ---- Journal Folder Setup ----
-
-/**
- * Ensure the standard FoundryAI journal folders exist: "Sessions" and "Notes".
- * Creates them if missing so the LLM always has valid targets.
- */
-async function ensureJournalFolders() {
-	try {
-		const REQUIRED_FOLDERS = ['Sessions', 'Notes']
-
-		for (const folderName of REQUIRED_FOLDERS) {
-			const exists = game.folders?.find((f: any) => f.type === 'JournalEntry' && f.name === folderName)
-			if (!exists) {
-				await Folder.create({
-					name: folderName,
-					type: 'JournalEntry',
-					parent: null,
-				} as any)
-				console.log(`FoundryAI | Created journal folder: ${folderName}`)
-			}
-		}
-	} catch (err) {
-		console.error('FoundryAI | Failed to create journal folders:', err)
-	}
-}
 
 // ---- Macro Creation ----
 

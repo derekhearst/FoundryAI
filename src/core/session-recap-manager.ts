@@ -7,9 +7,10 @@
 import { openRouterService, type LLMMessage } from './openrouter-service'
 import { chatSessionManager } from './chat-session-manager'
 import { collectionReader } from './collection-reader'
+import { getSubfolderId } from './folder-manager'
 
 const MODULE_ID = 'foundry-ai'
-const RECAP_FOLDER_NAME = 'Session Recaps'
+const RECAP_FOLDER_NAME = 'Sessions'
 
 export interface SessionRecap {
 	id: string // JournalEntry document ID
@@ -38,13 +39,20 @@ class SessionRecapManager {
 			if (folder) return folder
 		}
 
+		// Use the FoundryAI/Sessions subfolder
+		const subfolderId = getSubfolderId('sessions')
+		if (subfolderId) {
+			const folder = game.folders?.get(subfolderId)
+			if (folder) return folder
+		}
+
 		// Check cache
 		if (this.folderCache) {
 			const cached = game.folders?.get(this.folderCache)
 			if (cached) return cached
 		}
 
-		// Find existing
+		// Find existing (legacy fallback)
 		const existing = game.folders?.find((f: Folder) => f.name === RECAP_FOLDER_NAME && f.type === 'JournalEntry')
 
 		if (existing) {

@@ -6,7 +6,7 @@
   import { sessionRecapManager, type RecapProgress } from '@core/session-recap-manager';
   import { embeddingService } from '@core/embedding-service';
   import { getEnabledTools, executeTool } from '@core/tool-system';
-  import { buildSystemPrompt } from '@core/system-prompt';
+  import { buildSystemPrompt, buildActorRoleplayPrompt, type ActorRoleplayContext } from '@core/system-prompt';
   import { getSetting } from '../../settings';
   import { openSettingsDialog } from '../svelte-application';
   import SettingsPanel from './SettingsPanel.svelte';
@@ -33,6 +33,11 @@
   let recapProgress = $state<RecapProgress | null>(null);
   let isIndexing = $state(false);
   let indexProgress = $state('');
+
+  // Actor roleplay state
+  let currentActorId = $state<string | null>(null);
+  let currentActorName = $state<string | null>(null);
+  let showActorPicker = $state(false);
 
   // ---- Derived ----
 
@@ -118,9 +123,24 @@
     const session = await chatSessionManager.createSession();
     currentSessionId = session.id;
     currentSessionName = session.name;
+    currentActorId = null;
+    currentActorName = null;
     messages = [];
     streamingContent = '';
     viewMode = 'chat';
+    inputEl?.focus();
+  }
+
+  async function startActorRoleplaySession(actorId: string, actorName: string) {
+    const session = await chatSessionManager.createSession(undefined, actorId, actorName);
+    currentSessionId = session.id;
+    currentSessionName = session.name;
+    currentActorId = actorId;
+    currentActorName = actorName;
+    messages = [];
+    streamingContent = '';
+    viewMode = 'chat';
+    showActorPicker = false;
     inputEl?.focus();
   }
 
@@ -132,6 +152,8 @@
     }
     currentSessionId = session.id;
     currentSessionName = session.name;
+    currentActorId = session.actorId || null;
+    currentActorName = session.actorName || null;
     messages = session.messages;
     streamingContent = '';
     viewMode = 'chat';
@@ -162,7 +184,9 @@
 
     try {
       // Build context
-      const systemPrompt = buildSystemPrompt();
+      const systemPrompt = currentActorId
+        ? buildActorRoleplayPrompt({ actorId: currentActorId, actorName: currentActorName || 'Unknown' })
+        : buildSystemPrompt();
       const ragContext = await getRelevantContext(text);
 
       // Build message array for API
@@ -463,6 +487,32 @@
   function openSettings() {
     openSettingsDialog(SettingsPanel);
   }
+
+  /** Get available actors for the roleplay picker */
+  function getAvailableActors(): Array<{ id: string; name: string; type: string; img: string }> {
+    if (!game.actors) return [];
+    const actors: Array<{ id: string; name: string; type: string; img: string }> = [];
+    for (const actor of game.actors.values()) {
+      actors.push({
+        id: actor.id,
+        name: actor.name,
+        type: actor.type,
+        img: (actor as any).img || 'icons/svg/mystery-man.svg',
+      });
+    }
+    return actors.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  let actorPickerSearch = $state('');
+
+  const filteredActors = $derived.by(() => {
+    const all = getAvailableActors();
+    if (!actorPickerSearch.trim()) return all;
+    const q = actorPickerSearch.toLowerCase();
+    return all.filter(a => a.name.toLowerCase().includes(q));
+  });
+
+  const isActorRoleplay = $derived(!!currentActorId);
 </script>
 
 <div class="chat-window" class:sidebar={isSidebar}>
@@ -488,10 +538,21 @@
     </div>
 
     <span class="toolbar-title" title={currentSessionName}>
+      {#if isActorRoleplay}
+        <i class="fas fa-theater-masks" style="color: #f59e0b; margin-right: 4px;"></i>
+      {/if}
       {currentSessionName}
     </span>
 
     <div class="toolbar-right">
+      <button
+        class="toolbar-btn"
+        class:active={showActorPicker}
+        onclick={() => { showActorPicker = !showActorPicker; actorPickerSearch = ''; }}
+        title="Roleplay as Actor"
+      >
+        <i class="fas fa-theater-masks"></i>
+      </button>
       <button
         class="toolbar-btn"
         onclick={handleReindex}
@@ -527,6 +588,37 @@
     <div class="progress-banner index-banner">
       <i class="fas fa-database"></i>
       {indexProgress}
+    </div>
+  {/if}
+
+  <!-- Actor Picker Panel -->
+  {#if showActorPicker}
+    <div class="actor-picker">
+      <div class="actor-picker-header">
+        <h3>Roleplay as Actor</h3>
+        <input
+          type="text"
+          class="actor-search"
+          placeholder="Search actors..."
+          bind:value={actorPickerSearch}
+        />
+      </div>
+      <div class="actor-picker-list">
+        {#each filteredActors as actor (actor.id)}
+          <button
+            class="actor-pick-btn"
+            onclick={() => startActorRoleplaySession(actor.id, actor.name)}
+          >
+            <img src={actor.img} alt="" class="actor-pick-img" />
+            <div class="actor-pick-info">
+              <span class="actor-pick-name">{actor.name}</span>
+              <span class="actor-pick-type">{actor.type}</span>
+            </div>
+          </button>
+        {:else}
+          <div class="actor-pick-empty">No actors found</div>
+        {/each}
+      </div>
     </div>
   {/if}
 
@@ -1127,6 +1219,109 @@
   .send-btn:disabled {
     background: rgba(139, 92, 246, 0.3);
     cursor: not-allowed;
+  }
+
+  /* ---- Actor Picker ---- */
+  .actor-picker {
+    display: flex;
+    flex-direction: column;
+    max-height: 300px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.25);
+  }
+
+  .actor-picker-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .actor-picker-header h3 {
+    margin: 0;
+    font-size: 0.85em;
+    font-weight: 600;
+    color: #f59e0b;
+    white-space: nowrap;
+  }
+
+  .actor-search {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    color: inherit;
+    padding: 4px 8px;
+    font-size: 0.8em;
+    font-family: inherit;
+    outline: none;
+  }
+
+  .actor-search:focus {
+    border-color: rgba(245, 158, 11, 0.4);
+  }
+
+  .actor-picker-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px;
+  }
+
+  .actor-pick-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 8px;
+    margin: 1px 0;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+    text-align: left;
+    color: inherit;
+    transition: all 0.15s;
+  }
+
+  .actor-pick-btn:hover {
+    background: rgba(245, 158, 11, 0.15);
+    border-color: rgba(245, 158, 11, 0.3);
+  }
+
+  .actor-pick-img {
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    object-fit: cover;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .actor-pick-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .actor-pick-name {
+    font-size: 0.85em;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .actor-pick-type {
+    font-size: 0.7em;
+    opacity: 0.5;
+    text-transform: capitalize;
+  }
+
+  .actor-pick-empty {
+    padding: 16px;
+    text-align: center;
+    font-size: 0.82em;
+    opacity: 0.4;
   }
 
   /* ---- Sidebar adjustments ---- */

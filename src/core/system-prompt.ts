@@ -9,6 +9,12 @@ import { collectionReader } from './collection-reader'
 
 const MODULE_ID = 'foundry-ai'
 
+/** Actor data used for roleplay sessions */
+export interface ActorRoleplayContext {
+	actorId: string
+	actorName: string
+}
+
 /**
  * Build the full system prompt, injecting campaign context from the current
  * Foundry world state.
@@ -37,6 +43,147 @@ export function buildSystemPrompt(): string {
 	sections.push(FORMATTING_INSTRUCTIONS)
 
 	return sections.join('\n\n')
+}
+
+/**
+ * Build a system prompt for an actor roleplay session.
+ * The AI will stay in character as the specified actor.
+ */
+export function buildActorRoleplayPrompt(actor: ActorRoleplayContext): string {
+	const sections: string[] = []
+
+	// Build actor-specific personality prompt
+	const actorPrompt = buildActorPersonality(actor)
+	sections.push(actorPrompt)
+
+	// Inject world context so the actor knows the campaign
+	const worldContext = getWorldContext()
+	if (worldContext) {
+		sections.push(worldContext)
+	}
+
+	// Add tool usage instructions if tools are enabled
+	if (getSetting('enableTools')) {
+		sections.push(TOOL_INSTRUCTIONS)
+	}
+
+	// Add formatting instructions
+	sections.push(FORMATTING_INSTRUCTIONS)
+
+	return sections.join('\n\n')
+}
+
+/**
+ * Build the actor personality block from their Foundry actor data.
+ */
+function buildActorPersonality(ctx: ActorRoleplayContext): string {
+	const actor = game.actors?.get(ctx.actorId) as any
+	if (!actor) {
+		return `You are roleplaying as **${ctx.actorName}**. Stay in character at all times. Respond as this character would — use their voice, mannerisms, and perspective. If the DM asks out-of-character questions, you may answer briefly but always return to character.`
+	}
+
+	const system = actor.system as Record<string, any>
+	const parts: string[] = []
+
+	// Core identity
+	parts.push(`You are roleplaying as **${actor.name}**, a character in this campaign.`)
+	parts.push(`Stay in character at all times. Respond as ${actor.name} would — use their voice, mannerisms, knowledge, and perspective.`)
+	parts.push(`You do NOT know things ${actor.name} wouldn't know. You have ${actor.name}'s memories, personality, and worldview.`)
+
+	// Type and basic stats
+	if (actor.type) parts.push(`\n**Type:** ${actor.type}`)
+
+	// Race, class, level (D&D 5e)
+	const details: string[] = []
+	if (system?.details?.race?.name || system?.details?.race) {
+		const raceName = typeof system.details.race === 'string' ? system.details.race : system.details.race?.name || 'Unknown'
+		details.push(`**Race:** ${raceName}`)
+	}
+	if (system?.details?.background?.name || system?.details?.background) {
+		const bg = typeof system.details.background === 'string' ? system.details.background : system.details.background?.name || ''
+		if (bg) details.push(`**Background:** ${bg}`)
+	}
+	if (system?.attributes?.hp) {
+		details.push(`**HP:** ${system.attributes.hp.value}/${system.attributes.hp.max}`)
+	}
+
+	// Classes (5e)
+	try {
+		if (actor.classes && typeof actor.classes === 'object') {
+			const classEntries = Object.values(actor.classes) as any[]
+			if (classEntries.length > 0) {
+				const classStr = classEntries.map((c: any) => `${c.name || c.identifier} ${c.system?.levels || ''}`).join(' / ')
+				details.push(`**Class:** ${classStr}`)
+			}
+		}
+	} catch { /* ignore */ }
+
+	if (details.length > 0) parts.push(details.join(' | '))
+
+	// Ability scores
+	try {
+		if (system?.abilities) {
+			const abs = Object.entries(system.abilities)
+				.map(([key, val]: [string, any]) => `${key.toUpperCase()}: ${val.value}`)
+				.join(', ')
+			if (abs) parts.push(`**Abilities:** ${abs}`)
+		}
+	} catch { /* ignore */ }
+
+	// Biography / description
+	try {
+		const bio = system?.details?.biography?.value
+		if (bio && typeof bio === 'string' && bio.trim().length > 0) {
+			// Strip HTML tags for a cleaner prompt
+			const cleanBio = bio.replace(/<[^>]+>/g, '').trim()
+			if (cleanBio.length > 0) {
+				parts.push(`\n## Biography & Personality\n${cleanBio.slice(0, 3000)}`)
+			}
+		}
+	} catch { /* ignore */ }
+
+	// Traits (D&D 5e)
+	try {
+		const traits = system?.details?.trait?.value
+		const ideals = system?.details?.ideal?.value
+		const bonds = system?.details?.bond?.value
+		const flaws = system?.details?.flaw?.value
+
+		const traitParts: string[] = []
+		if (traits) traitParts.push(`**Personality Traits:** ${traits}`)
+		if (ideals) traitParts.push(`**Ideals:** ${ideals}`)
+		if (bonds) traitParts.push(`**Bonds:** ${bonds}`)
+		if (flaws) traitParts.push(`**Flaws:** ${flaws}`)
+
+		if (traitParts.length > 0) {
+			parts.push(`\n## Character Traits\n${traitParts.join('\n')}`)
+		}
+	} catch { /* ignore */ }
+
+	// Items/equipment summary
+	try {
+		if (actor.items && actor.items.size > 0) {
+			const equipped = (Array.from(actor.items.values()) as any[])
+				.filter((i: any) => i.system?.equipped || i.type === 'spell')
+				.slice(0, 20)
+				.map((i: any) => `${i.name} (${i.type})`)
+			if (equipped.length > 0) {
+				parts.push(`\n## Notable Equipment & Abilities\n${equipped.join(', ')}`)
+			}
+		}
+	} catch { /* ignore */ }
+
+	// Roleplay instructions
+	parts.push(`\n## Roleplay Guidelines`)
+	parts.push(`- Speak in first person as ${actor.name}`)
+	parts.push(`- Use dialogue in quotation marks: "Like this"`)
+	parts.push(`- Express emotions, reactions, and body language in *italics*`)
+	parts.push(`- Reference your abilities, equipment, and backstory naturally`)
+	parts.push(`- If asked about things your character wouldn't know, respond in character (confused, curious, etc.)`)
+	parts.push(`- The DM (the user) may set scenes or describe situations — react in character`)
+	parts.push(`- You may use tools to look up your own stats, spells, or items when relevant`)
+
+	return parts.join('\n')
 }
 
 /**
@@ -304,9 +451,11 @@ You have access to tools that let you interact with the Foundry VTT world. **You
 4. **Chain tool calls when needed.** For example: search_journals → get_journal → search_actors → get_actor. Use as many calls as necessary to gather complete information.
 5. **Use create_journal** when the DM asks you to write up quests, session notes, recaps, or summaries.
 6. **Journal folder routing — ALWAYS follow these rules when creating journals:**
-   - **Session recaps** → folder_name: "Sessions"
-   - **Notes, stored data, quest logs, reminders, or any other created content** → folder_name: "Notes"
+   - **Session recaps** → folder_name: "Sessions" (inside the FoundryAI folder)
+   - **Notes, stored data, quest logs, reminders, or any other created content** → folder_name: "Notes" (inside the FoundryAI folder)
+   - **Actor roleplay notes** → folder_name: "Actors" (inside the FoundryAI folder)
    - NEVER create journals in the root. Always specify the appropriate folder_name.
+   - The FoundryAI folder structure is: FoundryAI/ → Notes, Chat History, Sessions, Actors
 7. **Token placement:** Tokens placed via place_token are HIDDEN by default. Describe what you placed and ask the DM to confirm before revealing.
 8. **Combat management:** When running combat, use next_turn to advance turns and announce whose turn it is. Use apply_damage and apply_condition to track effects.
 9. **Audio:** Set the mood proactively when activating scenes or during dramatic moments if playlists are available.

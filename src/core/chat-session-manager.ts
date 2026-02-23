@@ -1,13 +1,13 @@
 /* ==========================================================================
    Chat Session Manager
-   Persists raw chat conversations as JournalEntry documents in a dedicated
-   "FoundryAI Chat History" folder.
+   Persists raw chat conversations as JournalEntry documents in the
+   FoundryAI/Chat History subfolder (or FoundryAI/Actors for roleplay).
    ========================================================================== */
 
 import type { LLMMessage } from './openrouter-service'
+import { getSubfolderId } from './folder-manager'
 
 const MODULE_ID = 'foundry-ai'
-const CHAT_HISTORY_FOLDER_NAME = 'FoundryAI Chat History'
 
 export interface ChatSession {
 	id: string // JournalEntry document ID
@@ -17,6 +17,8 @@ export interface ChatSession {
 	updatedAt: number // Epoch ms
 	model: string // Model used for this session
 	tokenCount?: number // Approximate total tokens
+	actorId?: string // If this is an actor roleplay session
+	actorName?: string // Display name of the actor
 }
 
 export interface SessionSummary {
@@ -26,6 +28,8 @@ export interface SessionSummary {
 	updatedAt: number
 	messageCount: number
 	model: string
+	actorId?: string
+	actorName?: string
 }
 
 class ChatSessionManager {
@@ -40,22 +44,31 @@ class ChatSessionManager {
 			if (folder) return folder
 		}
 
-		// Find existing folder
+		// Use the FoundryAI/Chat History subfolder
+		const subfolderId = getSubfolderId('chatHistory')
+		if (subfolderId) {
+			const folder = game.folders?.get(subfolderId)
+			if (folder) return folder
+		}
+
+		// Find existing folder (legacy fallback)
 		if (this.folderCache) {
 			const cached = game.folders?.get(this.folderCache)
 			if (cached) return cached
 		}
 
-		const existing = game.folders?.find((f: Folder) => f.name === CHAT_HISTORY_FOLDER_NAME && f.type === 'JournalEntry')
+		const existing = game.folders?.find(
+			(f: Folder) => f.name === 'Chat History' && f.type === 'JournalEntry',
+		)
 
 		if (existing) {
 			this.folderCache = existing.id
 			return existing
 		}
 
-		// Create folder
+		// Create folder as last resort
 		const folder = await Folder.create({
-			name: CHAT_HISTORY_FOLDER_NAME,
+			name: 'Chat History',
 			type: 'JournalEntry',
 			color: '#5e4fa2',
 		})
@@ -64,30 +77,39 @@ class ChatSessionManager {
 		return folder
 	}
 
+	/** Get the Actors roleplay subfolder */
+	getActorRoleplayFolder(): any | null {
+		const folderId = getSubfolderId('actors')
+		if (folderId) return game.folders?.get(folderId) || null
+		return null
+	}
+
 	/** Create a new chat session */
-	async createSession(name?: string): Promise<ChatSession> {
-		const folder = await this.getChatHistoryFolder()
+	async createSession(name?: string, actorId?: string, actorName?: string): Promise<ChatSession> {
+		// Actor roleplay sessions go in the Actors folder
+		const folder = actorId ? (this.getActorRoleplayFolder() || await this.getChatHistoryFolder()) : await this.getChatHistoryFolder()
 		const now = Date.now()
-		const sessionName = name || `Chat ${new Date(now).toLocaleString()}`
+		const sessionName = name || (actorName ? `${actorName} — ${new Date(now).toLocaleString()}` : `Chat ${new Date(now).toLocaleString()}`)
 
 		const journal = await JournalEntry.create({
 			name: sessionName,
 			folder: folder.id,
 			pages: [
 				{
-					name: 'Chat Log',
+					name: actorName ? `${actorName} Roleplay` : 'Chat Log',
 					type: 'text',
 					text: { content: '', format: 1 },
 				},
 			],
 			flags: {
 				[MODULE_ID]: {
-					type: 'chat-session',
+					type: actorId ? 'actor-roleplay' : 'chat-session',
 					messages: [],
 					createdAt: now,
 					updatedAt: now,
 					model: '',
 					tokenCount: 0,
+					...(actorId ? { actorId, actorName } : {}),
 				},
 			},
 		})
@@ -99,6 +121,8 @@ class ChatSessionManager {
 			createdAt: now,
 			updatedAt: now,
 			model: '',
+			actorId,
+			actorName,
 		}
 	}
 
@@ -178,7 +202,7 @@ class ChatSessionManager {
 		if (!entry) return null
 
 		const flags = entry.flags?.[MODULE_ID] as Record<string, any>
-		if (!flags || flags.type !== 'chat-session') return null
+		if (!flags || (flags.type !== 'chat-session' && flags.type !== 'actor-roleplay')) return null
 
 		return {
 			id: entry.id,
@@ -188,6 +212,8 @@ class ChatSessionManager {
 			updatedAt: flags.updatedAt || 0,
 			model: flags.model || '',
 			tokenCount: flags.tokenCount,
+			actorId: flags.actorId,
+			actorName: flags.actorName,
 		}
 	}
 
@@ -199,7 +225,7 @@ class ChatSessionManager {
 
 		for (const entry of game.journal.values()) {
 			const flags = entry.flags?.[MODULE_ID] as Record<string, any>
-			if (!flags || flags.type !== 'chat-session') continue
+			if (!flags || (flags.type !== 'chat-session' && flags.type !== 'actor-roleplay')) continue
 
 			sessions.push({
 				id: entry.id,
@@ -208,6 +234,8 @@ class ChatSessionManager {
 				updatedAt: flags.updatedAt || 0,
 				messageCount: (flags.messages || []).length,
 				model: flags.model || '',
+				actorId: flags.actorId,
+				actorName: flags.actorName,
 			})
 		}
 
