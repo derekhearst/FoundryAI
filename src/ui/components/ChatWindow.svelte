@@ -458,7 +458,7 @@ Stay fully in character for the introduction, but present the dialogue hooks and
       if (valid.length > 0) {
         console.log('FoundryAI | Executing streamed tool calls:', valid.map(tc => `${tc.function.name}(${tc.function.arguments.slice(0, 100)}...)`));
         const assistantMessage = { content: fullContent || null, tool_calls: valid };
-        await handleToolCalls(assistantMessage, apiMessages, model, temperature, maxTokens);
+        await handleToolCalls(assistantMessage, apiMessages, model, temperature, maxTokens, 0, signal);
       } else {
         console.warn('FoundryAI | All streamed tool calls had missing names, treating as text response');
         const msg: LLMMessage = { role: 'assistant', content: fullContent || '⚠️ Tool call failed — the model returned an invalid response.' };
@@ -500,7 +500,7 @@ Stay fully in character for the introduction, but present the dialogue hooks and
     });
 
     if (assistantMessage?.tool_calls?.length) {
-      await handleToolCalls(assistantMessage, apiMessages, model, temperature, maxTokens);
+      await handleToolCalls(assistantMessage, apiMessages, model, temperature, maxTokens, 0, signal);
     } else {
       const msg: LLMMessage = { role: 'assistant', content: assistantMessage?.content || '' };
       messages = [...messages, msg];
@@ -514,7 +514,14 @@ Stay fully in character for the introduction, but present the dialogue hooks and
     temperature: number,
     maxTokens: number,
     depth: number = 0,
+    signal?: AbortSignal,
   ) {
+    // Check if abort was requested
+    if (signal?.aborted) {
+      console.log('FoundryAI | Tool execution stopped by user');
+      return;
+    }
+
     const maxDepth = getSetting('maxToolDepth');
     console.log(`FoundryAI | handleToolCalls depth=${depth}/${maxDepth}, tools: [${assistantMessage.tool_calls?.map((tc: any) => tc.function?.name || 'UNNAMED').join(', ')}]`);
 
@@ -549,23 +556,32 @@ Stay fully in character for the introduction, but present the dialogue hooks and
 
     messages = [...messages, ...toolResults];
 
+    // Check again before continuing
+    if (signal?.aborted) {
+      console.log('FoundryAI | Tool execution stopped by user (after execution)');
+      return;
+    }
+
     // Continue the conversation with tool results
     const continuedMessages = [...apiMessages, assistantMsg, ...toolResults];
 
-    const response = await openRouterService.chatCompletion({
-      model,
-      messages: continuedMessages,
-      temperature,
-      max_tokens: maxTokens,
-      tools: getEnabledTools(),
-      tool_choice: 'auto',
-    });
+    const response = await openRouterService.chatCompletion(
+      {
+        model,
+        messages: continuedMessages,
+        temperature,
+        max_tokens: maxTokens,
+        tools: getEnabledTools(),
+        tool_choice: 'auto',
+      },
+      signal,
+    );
 
     const nextMessage = response.choices?.[0]?.message;
 
     if (nextMessage?.tool_calls?.length) {
       // Recursive tool calls
-      await handleToolCalls(nextMessage, continuedMessages, model, temperature, maxTokens, depth + 1);
+      await handleToolCalls(nextMessage, continuedMessages, model, temperature, maxTokens, depth + 1, signal);
     } else {
       messages = [...messages, { role: 'assistant', content: nextMessage?.content || '' }];
     }

@@ -15,21 +15,27 @@ function isJournalFolderAllowed(folderId: string | undefined | null): boolean {
 	const allowed = getSetting('journalFolders') || []
 	if (allowed.length === 0) return true // no restriction if none selected
 	if (!folderId) return false // root items excluded when filtering is active
-	return allowed.includes(folderId)
+	// Resolve to include child folders
+	const allAllowed = collectionReader.resolveWithChildren(allowed)
+	return allAllowed.includes(folderId)
 }
 
 function isActorFolderAllowed(folderId: string | undefined | null): boolean {
 	const allowed = getSetting('actorFolders') || []
 	if (allowed.length === 0) return true
 	if (!folderId) return false
-	return allowed.includes(folderId)
+	// Resolve to include child folders
+	const allAllowed = collectionReader.resolveWithChildren(allowed)
+	return allAllowed.includes(folderId)
 }
 
 function isSceneFolderAllowed(folderId: string | undefined | null): boolean {
 	const allowed = getSetting('sceneFolders') || []
 	if (allowed.length === 0) return true
 	if (!folderId) return false
-	return allowed.includes(folderId)
+	// Resolve to include child folders
+	const allAllowed = collectionReader.resolveWithChildren(allowed)
+	return allAllowed.includes(folderId)
 }
 
 // ---- Tool Definitions (OpenAI function calling format) ----
@@ -1083,15 +1089,15 @@ async function handleSearchActors(query: string, maxResults?: number): Promise<s
 	const queryLower = query.toLowerCase()
 	const results: Array<{ name: string; id: string; folder: string; relevance: number; excerpt: string }> = []
 	const allowed = getSetting('actorFolders') || []
-	
+
 	// Get actors from the configured folders (this handles folder resolution + access control)
 	const indexedActors = collectionReader.getActorsByFolders(allowed)
-	
+
 	// First pass: exact and partial name matches
 	const nameMatches: typeof results = []
 	for (const actor of indexedActors) {
 		const nameLower = actor.name.toLowerCase()
-		
+
 		if (nameLower === queryLower) {
 			// Exact match - highest priority
 			nameMatches.unshift({
@@ -1111,17 +1117,17 @@ async function handleSearchActors(query: string, maxResults?: number): Promise<s
 				excerpt: actor.content.slice(0, 500),
 			})
 		}
-		
+
 		if (nameMatches.length >= max) break
 	}
-	
+
 	results.push(...nameMatches.slice(0, max))
-	
+
 	// Second pass: embedding-based search if we need more results
 	if (results.length < max) {
 		const embeddingResults = await embeddingService.search(query, max - results.length, { documentType: 'actor' })
-		const existingIds = new Set(results.map(r => r.id))
-		
+		const existingIds = new Set(results.map((r) => r.id))
+
 		for (const r of embeddingResults) {
 			if (!existingIds.has(r.entry.documentId)) {
 				results.push({
@@ -1131,7 +1137,7 @@ async function handleSearchActors(query: string, maxResults?: number): Promise<s
 					relevance: Math.round(r.score * 100) / 100,
 					excerpt: r.entry.text.slice(0, 500),
 				})
-				
+
 				if (results.length >= max) break
 			}
 		}
@@ -1933,10 +1939,13 @@ async function handleSearchCompendium(query: string, type?: string, maxResults?:
 	const max = maxResults || 10
 	const queryLower = query.toLowerCase()
 	const results: Array<Record<string, any>> = []
+	const typeFilter = type ? type.toLowerCase() : null
 
 	for (const [packId, pack] of game.packs) {
 		if (!pack) continue
-		if (type && type !== 'all' && pack.documentName !== type) continue
+		// Convert type to lowercase for comparison
+		const packType = pack.documentName?.toLowerCase()
+		if (typeFilter && typeFilter !== 'all' && packType !== typeFilter) continue
 
 		// Ensure index is loaded
 		try {
