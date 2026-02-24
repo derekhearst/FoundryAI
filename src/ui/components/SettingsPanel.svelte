@@ -20,6 +20,8 @@
   let streamResponses = $state(true);
   let autoIndex = $state(true);
   let enableTools = $state(true);
+  let enableRAG = $state(false);
+  let playerFolder = $state('');
   let enableSceneTools = $state(true);
   let enableDiceTools = $state(true);
   let enableTokenTools = $state(true);
@@ -61,6 +63,8 @@
       streamResponses = getSetting('streamResponses') ?? true;
       autoIndex = getSetting('autoIndex') ?? true;
       enableTools = getSetting('enableTools') ?? true;
+      enableRAG = getSetting('enableRAG') ?? false;
+      playerFolder = getSetting('playerFolder') || '';
       enableSceneTools = getSetting('enableSceneTools') ?? true;
       enableDiceTools = getSetting('enableDiceTools') ?? true;
       enableTokenTools = getSetting('enableTokenTools') ?? true;
@@ -148,6 +152,8 @@
       await setSetting('streamResponses', streamResponses);
       await setSetting('autoIndex', autoIndex);
       await setSetting('enableTools', enableTools);
+      await setSetting('enableRAG', enableRAG);
+      await setSetting('playerFolder', playerFolder);
       await setSetting('enableSceneTools', enableSceneTools);
       await setSetting('enableDiceTools', enableDiceTools);
       await setSetting('enableTokenTools', enableTokenTools);
@@ -353,6 +359,16 @@
 
       <div class="field checkbox-field">
         <label>
+          <input type="checkbox" bind:checked={enableRAG} />
+          Enable RAG Context
+        </label>
+        <small style="color: var(--color-text-dark-5); margin-left: 1.5rem; display: block;">
+          Injects relevant document excerpts into each prompt via embedding search. Increases token usage.
+        </small>
+      </div>
+
+      <div class="field checkbox-field">
+        <label>
           <input type="checkbox" bind:checked={autoIndex} />
           Auto-index on startup
         </label>
@@ -438,6 +454,19 @@
             {/each}
           {/if}
         </div>
+      </div>
+
+      <div class="field">
+        <span class="field-label"><i class="fas fa-dice-d20"></i> Player Character Folder</span>
+        <small style="color: var(--color-text-dark-5); display: block; margin-bottom: 0.25rem;">
+          Actor folder containing player characters. Their details are included in every prompt.
+        </small>
+        <select bind:value={playerFolder} style="width: 100%;">
+          <option value="">— None —</option>
+          {#each actorFolders as folder (folder.id)}
+            <option value={folder.id}>{folder.path}</option>
+          {/each}
+        </select>
       </div>
 
       <div class="field">

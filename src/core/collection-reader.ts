@@ -310,14 +310,11 @@ export class CollectionReader {
 		const scene = game.scenes?.contents?.find((s) => s.active)
 		if (!scene) return 'No active scene.'
 
-		const parts = [`Active Scene: ${scene.name}`]
+		const parts = [`Active Scene: ${scene.name} (id: ${scene.id})`]
 
 		// Scene metadata
 		if (scene.grid) {
 			parts.push(`Grid: ${scene.grid.distance || 5}${scene.grid.units || 'ft'} per square`)
-		}
-		if (scene.darkness != null && scene.darkness > 0) {
-			parts.push(`Darkness Level: ${Math.round(scene.darkness * 100)}%`)
 		}
 		if (scene.weather) {
 			parts.push(`Weather: ${scene.weather}`)
@@ -360,36 +357,6 @@ export class CollectionReader {
 				tokenDetails.push(`- ${detail.join(' | ')} (token_id: ${token.id})`)
 			}
 			parts.push(`\nTokens (${scene.tokens.size}):\n${tokenDetails.join('\n')}`)
-		}
-
-		// Map notes with text content
-		if (scene.notes?.size) {
-			const noteDetails: string[] = []
-			for (const note of scene.notes.values()) {
-				const label = (note as any).label || (note as any).text || note.name || 'Unnamed'
-				noteDetails.push(`- ${label} at (${note.x}, ${note.y})`)
-			}
-			parts.push(`\nMap Notes (${scene.notes.size}):\n${noteDetails.join('\n')}`)
-		}
-
-		// Lights
-		if (scene.lights?.size) {
-			parts.push(`Lights: ${scene.lights.size}`)
-		}
-
-		// Walls/Doors
-		if (scene.walls?.size) {
-			let doors = 0
-			let openDoors = 0
-			for (const wall of scene.walls.values()) {
-				if ((wall as any).door === 1 || (wall as any).door === 2) {
-					doors++
-					if ((wall as any).ds === 1) openDoors++
-				}
-			}
-			if (doors > 0) {
-				parts.push(`Doors: ${doors} (${openDoors} open)`)
-			}
 		}
 
 		return parts.join('\n')

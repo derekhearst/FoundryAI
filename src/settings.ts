@@ -25,6 +25,8 @@ export interface FoundryAISettings {
 	autoIndex: boolean
 	enableTools: boolean
 	showSidebarTab: boolean
+	enableRAG: boolean
+	playerFolder: string
 	enableSceneTools: boolean
 	enableDiceTools: boolean
 	enableTokenTools: boolean
@@ -191,6 +193,24 @@ export function registerSettings(): void {
 		config: false,
 		type: Boolean,
 		default: true,
+	})
+
+	game.settings.register(MODULE_ID, 'enableRAG', {
+		name: 'Enable RAG Context',
+		hint: 'Inject relevant document excerpts into each prompt via embedding search. Increases token usage but gives the AI pre-loaded context.',
+		scope: 'world',
+		config: false,
+		type: Boolean,
+		default: false,
+	})
+
+	game.settings.register(MODULE_ID, 'playerFolder', {
+		name: 'Player Character Folder',
+		hint: 'The actor folder containing player characters. These will be included in every prompt so the AI knows the party.',
+		scope: 'world',
+		config: false,
+		type: String,
+		default: '',
 	})
 
 	game.settings.register(MODULE_ID, 'showSidebarTab', {

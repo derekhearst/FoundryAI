@@ -293,12 +293,14 @@ IMPORTANT: You already have all the information you need about this character fr
       const systemPrompt = currentActorId
         ? buildActorRoleplayPrompt({ actorId: currentActorId, actorName: currentActorName || 'Unknown' })
         : buildSystemPrompt();
-      const ragContext = await getRelevantContext(text);
 
-      // Build message array for API
+      // RAG context — only injected when enabled in settings
+      const ragContext = getSetting('enableRAG') ? await getRelevantContext(text) : null;
+
+      // Build message array for API — condense old tool results to save tokens
       const apiMessages: LLMMessage[] = [
         { role: 'system', content: systemPrompt + (ragContext ? `\n\n# Relevant Context\n${ragContext}` : '') },
-        ...messages,
+        ...condenseOldToolResults(messages),
       ];
 
       const model = getSetting('chatModel');
@@ -652,6 +654,74 @@ IMPORTANT: You already have all the information you need about this character fr
     } catch {
       return null;
     }
+  }
+
+  // ---- Token Optimization ----
+  /**
+   * Condense old tool results in conversation history to reduce token usage.
+   * Tool results from earlier turns (before the last assistant response) are truncated
+   * since the assistant already synthesized them into its response.
+   * The most recent tool call cycle is always kept in full.
+   */
+  function condenseOldToolResults(msgs: LLMMessage[]): LLMMessage[] {
+    // Find the index of the last assistant message that has actual content (not just tool_calls)
+    let lastAssistantContentIdx = -1;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role === 'assistant' && m.content && !m.tool_calls) {
+        lastAssistantContentIdx = i;
+        break;
+      }
+    }
+
+    // If there's no completed assistant response yet, keep everything
+    if (lastAssistantContentIdx === -1) return msgs;
+
+    // Find the start of the most recent tool call cycle
+    // (the assistant message with tool_calls that led to the last response)
+    let recentCycleStart = lastAssistantContentIdx;
+    for (let i = lastAssistantContentIdx - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role === 'tool' || (m.role === 'assistant' && m.tool_calls)) {
+        recentCycleStart = i;
+      } else {
+        break;
+      }
+    }
+
+    const MAX_OLD_TOOL_CONTENT = 200; // chars to keep from old tool results
+
+    return msgs.map((msg, idx) => {
+      // Keep everything in the most recent cycle and after in full
+      if (idx >= recentCycleStart) return msg;
+
+      // Condense old tool results
+      if (msg.role === 'tool' && typeof msg.content === 'string' && msg.content.length > MAX_OLD_TOOL_CONTENT) {
+        try {
+          const parsed = JSON.parse(msg.content);
+          // Build a compact summary preserving document names and IDs for reference
+          if (parsed.results && Array.isArray(parsed.results)) {
+            const summary = {
+              _condensed: true,
+              note: 'Full content was provided earlier and used in the response above.',
+              results: parsed.results.map((r: any) => ({
+                documentId: r.documentId || r.id,
+                documentName: r.documentName || r.name,
+                uuidRef: r.uuidRef,
+                folder: r.folder,
+              })),
+            };
+            return { ...msg, content: JSON.stringify(summary) };
+          }
+          // For other tool results, just truncate
+          return { ...msg, content: msg.content.slice(0, MAX_OLD_TOOL_CONTENT) + '... [condensed]' };
+        } catch {
+          return { ...msg, content: msg.content.slice(0, MAX_OLD_TOOL_CONTENT) + '... [condensed]' };
+        }
+      }
+
+      return msg;
+    });
   }
 
   // ---- Reindexing ----

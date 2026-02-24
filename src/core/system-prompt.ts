@@ -6,6 +6,7 @@
 
 import { getSetting } from '../settings'
 import { collectionReader } from './collection-reader'
+import { getSubfolderId } from './folder-manager'
 
 const MODULE_ID = 'foundry-ai'
 
@@ -279,11 +280,11 @@ function getWorldContext(): string | null {
 		/* ignore */
 	}
 
-	// Available actors inventory
+	// AI-created notes (full content from FoundryAI/Notes folder)
 	try {
-		const actorIndex = getActorInventory()
-		if (actorIndex) {
-			parts.push(actorIndex)
+		const notesContent = getNotesContent()
+		if (notesContent) {
+			parts.push(notesContent)
 		}
 	} catch {
 		/* ignore */
@@ -297,20 +298,50 @@ function getWorldContext(): string | null {
 function getPlayerCharacters(): string[] {
 	if (!game.actors) return []
 
+	const playerFolderId = getSetting('playerFolder')
 	const pcs: string[] = []
+
 	for (const actor of game.actors.values()) {
 		if (actor.type !== 'character') continue
-		if (!actor.hasPlayerOwner) continue
+
+		// If playerFolder is set, only include actors from that folder
+		if (playerFolderId) {
+			const allFolderIds = collectionReader.resolveWithChildren([playerFolderId])
+			if (!actor.folder || !allFolderIds.includes(actor.folder.id)) continue
+		} else {
+			// Fallback: only include player-owned characters
+			if (!actor.hasPlayerOwner) continue
+		}
 
 		const system = actor.system as Record<string, any>
-		const details: string[] = [`- **${actor.name}**`]
+		const details: string[] = [`- **${actor.name}** (id: ${actor.id})`]
 
 		// Try to get class/race/level info (system-agnostic)
-		if (system?.details?.race) details.push(`Race: ${system.details.race}`)
-		if (system?.details?.class) details.push(`Class: ${system.details.class}`)
-		if (system?.details?.level) details.push(`Level: ${system.details.level}`)
+		if (system?.details?.race) {
+			const raceName = typeof system.details.race === 'string' ? system.details.race : system.details.race?.name || ''
+			if (raceName) details.push(`Race: ${raceName}`)
+		}
+
+		// Classes (5e)
+		try {
+			if ((actor as any).classes && typeof (actor as any).classes === 'object') {
+				const classEntries = Object.values((actor as any).classes) as any[]
+				if (classEntries.length > 0) {
+					const classStr = classEntries
+						.map((c: any) => `${c.name || c.identifier} ${c.system?.levels || ''}`)
+						.join(' / ')
+					details.push(`Class: ${classStr}`)
+				}
+			}
+		} catch {
+			/* ignore */
+		}
+
 		if (system?.attributes?.hp) {
 			details.push(`HP: ${system.attributes.hp.value}/${system.attributes.hp.max}`)
+		}
+		if (system?.attributes?.ac) {
+			details.push(`AC: ${system.attributes.ac.value ?? system.attributes.ac.flat ?? '?'}`)
 		}
 
 		pcs.push(details.join(' | '))
@@ -320,37 +351,61 @@ function getPlayerCharacters(): string[] {
 }
 
 /**
- * Build a compact inventory of all journal entries grouped by folder.
- * This lets the LLM know what's available so it can fetch relevant docs.
+ * Build a compact inventory of all journal entries — just IDs and names.
+ * Only includes journals from folders the user has granted access to.
  */
 function getJournalInventory(): string | null {
 	if (!game.journal || game.journal.size === 0) return null
 
-	// Group journals by folder
-	const byFolder = new Map<string, Array<{ id: string; name: string; pages: number }>>()
-
-	for (const entry of game.journal.values()) {
-		const folderName = entry.folder?.name || 'Uncategorized'
-		if (!byFolder.has(folderName)) byFolder.set(folderName, [])
-		byFolder.get(folderName)!.push({
-			id: entry.id,
-			name: entry.name,
-			pages: entry.pages?.size || 0,
-		})
-	}
+	const allowedFolders = getSetting('journalFolders') || []
+	const allAllowedFolderIds = allowedFolders.length > 0 ? collectionReader.resolveWithChildren(allowedFolders) : null // null = no restriction
 
 	const lines: string[] = ['## Available Journals']
-	lines.push('Use search_journals or get_journal (with the ID) to read any of these:\n')
+	lines.push(
+		'Call get_journal with the ID to read any of these. ALWAYS read the relevant journal before answering campaign questions.\n',
+	)
 
-	for (const [folder, entries] of byFolder) {
-		lines.push(`### 📁 ${folder}`)
-		for (const e of entries) {
-			lines.push(`- ${e.name} (id: ${e.id}, ${e.pages} page${e.pages !== 1 ? 's' : ''})`)
+	let count = 0
+	for (const entry of game.journal.values()) {
+		// Filter to allowed folders if restrictions are set
+		if (allAllowedFolderIds !== null) {
+			if (!entry.folder || !allAllowedFolderIds.includes(entry.folder.id)) continue
 		}
-		lines.push('')
+		lines.push(`- ${entry.name} (id: ${entry.id})`)
+		count++
 	}
 
+	if (count === 0) return null
 	return lines.join('\n')
+}
+
+/**
+ * Get full content of all journals in the FoundryAI/Notes folder.
+ * These are notes the AI itself created — it should always have this context.
+ */
+function getNotesContent(): string | null {
+	const notesFolderId = getSubfolderId('notes')
+	if (!notesFolderId) return null
+	if (!game.journal || game.journal.size === 0) return null
+
+	const parts: string[] = ['## Your Notes (FoundryAI/Notes)']
+	parts.push('These are notes you previously created. Reference them when relevant.\n')
+
+	let count = 0
+	for (const entry of game.journal.values()) {
+		if (!entry.folder || entry.folder.id !== notesFolderId) continue
+
+		const content = collectionReader.getJournalContent(entry.id)
+		if (!content) continue
+
+		parts.push(`### ${entry.name} (id: ${entry.id})`)
+		parts.push(content)
+		parts.push('')
+		count++
+	}
+
+	if (count === 0) return null
+	return parts.join('\n')
 }
 
 /**
@@ -417,9 +472,10 @@ const TOOL_INSTRUCTIONS = `## Using Tools — MANDATORY
 You have access to tools that let you interact with the Foundry VTT world. **You MUST use these tools before generating any response about campaign-specific content.** Do NOT rely on your training data or the "Relevant Context" section alone — always verify and enrich your answer by calling the appropriate tools first.
 
 ### Core Tools (Knowledge & Content)
-- **search_journals**: Semantically search indexed journal entries (sourcebooks, lore, notes). Call this for ANY question about locations, NPCs, plot points, items, factions, or events. **This tool automatically returns the FULL content of every matching journal** — you do NOT need to call get_journal afterwards. Each result includes a uuidRef field you MUST use when citing the source.
-- **search_actors**: Semantically search indexed actors (NPCs, monsters, characters). Call this for ANY question about a character, creature, or NPC.
-- **get_journal / get_actor**: Retrieve FULL content by ID. Useful for direct lookups when you already know the ID.
+- **get_journal**: Retrieve the FULL content of a journal entry by ID. **This is your primary tool.** The system prompt lists all available journals with their IDs — use this to read the relevant journal(s) before answering any campaign question. You can call it multiple times to read several journals.
+- **search_journals**: Semantically search indexed journal entries when you're not sure which journal contains the information. Returns full content of matching journals with uuidRef citations. Use this when the journal name doesn't obviously match or when you need to discover which journals cover a topic.
+- **search_actors**: Semantically search indexed actors (NPCs, monsters, characters). Call this for ANY question about a character, creature, or NPC. Use this to find relevant actors by name or description.
+- **get_actor**: Retrieve full actor details by ID. Use when you already know the actor's ID (e.g. from the Player Characters list or a previous search).
 - **create_journal / update_journal**: Create or modify journal entries (quests, notes, recaps, summaries).
 - **list_journals_in_folder / list_folders**: Browse the world's organizational structure.
 - **get_scene_info**: Check what's happening in the current scene (tokens, notes, lights, etc.).
@@ -469,11 +525,11 @@ You have access to tools that let you interact with the Foundry VTT world. **You
 - **create_measured_template**: Place an area-of-effect template (circle, cone, ray, rect).
 
 ### CRITICAL RULES — Read Carefully
-1. **ALWAYS call search_journals and/or search_actors BEFORE answering any question about campaign content.** This includes questions about lore, NPCs, locations, quests, factions, items, encounters, or story events. No exceptions.
-2. **search_journals already returns the FULL content of each matching journal.** You do NOT need to call get_journal afterwards — the complete text is included in the results. Use get_journal only for direct lookups by ID when you already know which document you need.
-3. **ALWAYS cite your sources.** Every search result includes a uuidRef field (e.g. @UUID[JournalEntry.abc123]{Document Name}). You MUST include this reference in your response when using information from that journal. This lets the DM verify your answer and prevents hallucination.
-4. **Never fabricate campaign-specific facts.** If your tools return no results, say so explicitly: "I didn't find anything in the indexed journals about X. Would you like me to search differently or create a note about it?"
-5. **Chain tool calls when needed.** For example: search_journals → search_actors → get_actor. Use as many calls as necessary to gather complete information.
+1. **ALWAYS read the relevant journal(s) before answering any question about campaign content.** Check the "Available Journals" list in the system prompt. If the journal name clearly matches the topic, call get_journal with its ID. If you're not sure which journal covers the topic, call search_journals to find it. You can (and should) call get_journal multiple times to read several journals.
+2. **Use search_journals and search_actors for discovery.** When you don't know which journal or actor has the information, search first, then read the full content. For actors (NPCs, monsters), always use search_actors — the Player Characters in the system prompt only cover the party.
+3. **ALWAYS cite your sources with @UUID references.** When you use information from a journal, include @UUID[JournalEntry.{id}]{Journal Name} in your response. For actors, use @UUID[Actor.{id}]{Actor Name}. You get IDs from the Available Journals list, Player Characters list, or from tool results. This lets the DM click through to verify.
+4. **Never fabricate campaign-specific facts.** If no journal covers the topic, say so explicitly: "I didn't find anything in the journals about X. Would you like me to search differently or create a note about it?"
+5. **Chain tool calls when needed.** For example: get_journal → get_journal (another one) → search_actors. Read as many journals as needed to give a complete answer.
 6. **Use create_journal** when the DM asks you to write up quests, session notes, recaps, or summaries.
 7. **Journal folder routing — ALWAYS follow these rules when creating journals:**
    - **Session recaps** → folder_name: "Sessions" (inside the FoundryAI folder)
