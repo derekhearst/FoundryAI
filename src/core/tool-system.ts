@@ -2523,7 +2523,7 @@ async function handlePostChatMessage(content: string, speakerName?: string, whis
 		}
 	}
 
-	const msg = await ChatMessage.create(messageData)
+	const msg = await ChatMessage.create(messageData as Parameters<typeof ChatMessage.create>[0])
 
 	return JSON.stringify({
 		success: true,
