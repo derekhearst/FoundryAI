@@ -1063,7 +1063,8 @@ const ACTOR_TOOLS: ToolDefinition[] = [
 		type: 'function',
 		function: {
 			name: 'update_actor_item',
-			description: 'Update an item that is already on an actor (e.g. change quantity, charges, equipped state, description).',
+			description:
+				'Update an item that is already on an actor (e.g. change quantity, charges, equipped state, description).',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -1071,7 +1072,8 @@ const ACTOR_TOOLS: ToolDefinition[] = [
 					item_id: { type: 'string', description: 'The embedded item ID to update' },
 					data: {
 						type: 'object',
-						description: 'Key-value pairs to update on the item, e.g. { "system.quantity": 5, "system.equipped": true }',
+						description:
+							'Key-value pairs to update on the item, e.g. { "system.quantity": 5, "system.equipped": true }',
 					},
 				},
 				required: ['actor_id', 'item_id', 'data'],
@@ -1094,8 +1096,7 @@ const ITEM_TOOLS: ToolDefinition[] = [
 					name: { type: 'string', description: 'The item name' },
 					type: {
 						type: 'string',
-						description:
-							'Item type (e.g. "weapon", "equipment", "spell", "feat", "consumable", "tool", "loot")',
+						description: 'Item type (e.g. "weapon", "equipment", "spell", "feat", "consumable", "tool", "loot")',
 					},
 					data: {
 						type: 'object',
@@ -1128,14 +1129,15 @@ const ITEM_TOOLS: ToolDefinition[] = [
 		type: 'function',
 		function: {
 			name: 'update_item',
-			description: 'Update an existing world item\'s data.',
+			description: "Update an existing world item's data.",
 			parameters: {
 				type: 'object',
 				properties: {
 					item_id: { type: 'string', description: 'The item ID' },
 					data: {
 						type: 'object',
-						description: 'Key-value pairs to update, e.g. { "name": "New Name", "system.description.value": "<p>...</p>" }',
+						description:
+							'Key-value pairs to update, e.g. { "name": "New Name", "system.description.value": "<p>...</p>" }',
 					},
 				},
 				required: ['item_id', 'data'],
@@ -1195,7 +1197,7 @@ const MACRO_TOOLS: ToolDefinition[] = [
 		type: 'function',
 		function: {
 			name: 'get_macro',
-			description: 'Read a macro\'s script content by ID.',
+			description: "Read a macro's script content by ID.",
 			parameters: {
 				type: 'object',
 				properties: {
@@ -1232,7 +1234,7 @@ const MACRO_TOOLS: ToolDefinition[] = [
 		type: 'function',
 		function: {
 			name: 'update_macro',
-			description: 'Update an existing macro\'s name or command content.',
+			description: "Update an existing macro's name or command content.",
 			parameters: {
 				type: 'object',
 				properties: {
@@ -1280,7 +1282,8 @@ const IMAGE_TOOLS: ToolDefinition[] = [
 					size: {
 						type: 'string',
 						enum: ['1024x1024', '1792x1024', '1024x1792', '512x512'],
-						description: 'Image dimensions. Use 1792x1024 for landscape maps, 1024x1792 for portrait, 1024x1024 for square. Default: 1024x1024',
+						description:
+							'Image dimensions. Use 1792x1024 for landscape maps, 1024x1792 for portrait, 1024x1024 for square. Default: 1024x1024',
 					},
 				},
 				required: ['prompt'],
@@ -2959,11 +2962,7 @@ async function handleRemoveItemFromActor(actorId: string, itemId: string): Promi
 	})
 }
 
-async function handleUpdateActorItem(
-	actorId: string,
-	itemId: string,
-	data: Record<string, any>,
-): Promise<string> {
+async function handleUpdateActorItem(actorId: string, itemId: string, data: Record<string, any>): Promise<string> {
 	console.log(`FoundryAI | update_actor_item: actorId="${actorId}", itemId="${itemId}"`)
 	const actor = game.actors?.get(actorId)
 	if (!actor) return JSON.stringify({ error: `Actor not found: ${actorId}` })
@@ -3037,10 +3036,7 @@ function handleGetItem(itemId: string): string {
 	const item = game.items?.get(itemId)
 	if (!item) return JSON.stringify({ error: `Item not found: ${itemId}` })
 
-	const desc =
-		(item as any).system?.description?.value ||
-		(item as any).system?.description ||
-		''
+	const desc = (item as any).system?.description?.value || (item as any).system?.description || ''
 	const cleanDesc = typeof desc === 'string' ? desc.replace(/<[^>]+>/g, '').trim() : ''
 
 	return JSON.stringify({
