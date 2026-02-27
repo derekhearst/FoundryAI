@@ -146,11 +146,21 @@ export class OpenRouterService {
 	private apiKey: string = ''
 	private defaultModel: string = ''
 	private embeddingModel: string = ''
+	private imageModel: string = ''
+	private ttsModel: string = ''
 
-	configure(options: { apiKey: string; defaultModel?: string; embeddingModel?: string }): void {
+	configure(options: {
+		apiKey: string
+		defaultModel?: string
+		embeddingModel?: string
+		imageModel?: string
+		ttsModel?: string
+	}): void {
 		this.apiKey = options.apiKey
 		if (options.defaultModel) this.defaultModel = options.defaultModel
 		if (options.embeddingModel) this.embeddingModel = options.embeddingModel
+		if (options.imageModel) this.imageModel = options.imageModel
+		if (options.ttsModel) this.ttsModel = options.ttsModel
 	}
 
 	get isConfigured(): boolean {
@@ -355,6 +365,111 @@ export class OpenRouterService {
 		// generic /models route, so we filter or use known embedding model IDs
 		const models = await this.listModels()
 		return models.filter((m) => m.id.includes('embed') || m.architecture?.modality === 'embedding')
+	}
+
+	async listImageModels(): Promise<ModelInfo[]> {
+		const models = await this.listModels()
+		return models.filter(
+			(m) =>
+				m.architecture?.modality?.includes('image') ||
+				m.id.includes('dall-e') ||
+				m.id.includes('stable-diffusion') ||
+				m.id.includes('flux') ||
+				m.id.includes('midjourney') ||
+				m.id.includes('image'),
+		)
+	}
+
+	async listTTSModels(): Promise<ModelInfo[]> {
+		const models = await this.listModels()
+		return models.filter(
+			(m) =>
+				m.id.includes('tts') ||
+				m.id.includes('audio') ||
+				m.architecture?.modality?.includes('audio'),
+		)
+	}
+
+	// ---- Image Generation ----
+
+	async generateImage(
+		prompt: string,
+		model?: string,
+		size?: string,
+	): Promise<{ url?: string; b64_json?: string }> {
+		if (!this.apiKey) throw new Error('OpenRouter API key not configured')
+
+		const body = {
+			model: model || this.imageModel || 'openai/dall-e-3',
+			prompt,
+			n: 1,
+			size: size || '1024x1024',
+		}
+
+		console.log(`FoundryAI | API generateImage — model: ${body.model}, prompt: "${prompt.slice(0, 100)}..."`)
+
+		const response = await fetch(`${OPENROUTER_BASE}/images/generations`, {
+			method: 'POST',
+			headers: this.headers,
+			body: JSON.stringify(body),
+		})
+
+		if (!response.ok) {
+			const error = await response.json().catch(() => ({ message: response.statusText }))
+			console.error(`FoundryAI | Image gen error (${response.status}):`, error)
+			throw new Error(
+				`Image generation error (${response.status}): ${error.message || error.error?.message || 'Unknown error'}`,
+			)
+		}
+
+		const result = await response.json()
+		const imageData = result.data?.[0]
+
+		if (!imageData) {
+			throw new Error('No image data in response')
+		}
+
+		console.log(`FoundryAI | Image generated successfully`)
+		return {
+			url: imageData.url,
+			b64_json: imageData.b64_json,
+		}
+	}
+
+	// ---- Text-to-Speech ----
+
+	async generateSpeech(
+		input: string,
+		voice?: string,
+		model?: string,
+	): Promise<ArrayBuffer> {
+		if (!this.apiKey) throw new Error('OpenRouter API key not configured')
+
+		const body = {
+			model: model || this.ttsModel || 'openai/tts-1',
+			input,
+			voice: voice || 'nova',
+		}
+
+		console.log(`FoundryAI | API generateSpeech — model: ${body.model}, voice: ${body.voice}, input length: ${input.length}`)
+
+		const response = await fetch(`${OPENROUTER_BASE}/audio/speech`, {
+			method: 'POST',
+			headers: this.headers,
+			body: JSON.stringify(body),
+		})
+
+		if (!response.ok) {
+			const error = await response.json().catch(() => ({ message: response.statusText }))
+			console.error(`FoundryAI | TTS error (${response.status}):`, error)
+			throw new Error(
+				`TTS error (${response.status}): ${error.message || error.error?.message || 'Unknown error'}`,
+			)
+		}
+
+		const audioBuffer = await response.arrayBuffer()
+		console.log(`FoundryAI | TTS audio generated: ${audioBuffer.byteLength} bytes`)
+		return audioBuffer
 	}
 
 	// ---- Connection Test ----

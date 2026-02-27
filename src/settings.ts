@@ -12,9 +12,12 @@ export interface FoundryAISettings {
 	apiKey: string
 	chatModel: string
 	embeddingModel: string
+	imageModel: string
+	ttsModel: string
 	journalFolders: string[]
 	actorFolders: string[]
 	sceneFolders: string[]
+	macroFolders: string[]
 	chatHistoryFolder: string
 	sessionRecapFolder: string
 	systemPromptOverride: string
@@ -35,6 +38,10 @@ export interface FoundryAISettings {
 	enableChatTools: boolean
 	enableCompendiumTools: boolean
 	enableSpatialTools: boolean
+	enableActorTools: boolean
+	enableItemTools: boolean
+	enableMacroTools: boolean
+	enableImageTools: boolean
 	enableTTS: boolean
 	ttsVoice: string
 }
@@ -78,6 +85,30 @@ export function registerSettings(): void {
 		},
 	})
 
+	game.settings.register(MODULE_ID, 'imageModel', {
+		name: 'FOUNDRYAI.Settings.ImageModel',
+		hint: 'FOUNDRYAI.Settings.ImageModelHint',
+		scope: 'world',
+		config: false,
+		type: String,
+		default: 'openai/dall-e-3',
+		onChange: () => {
+			Hooks.callAll(`${MODULE_ID}.settingsChanged`, 'imageModel')
+		},
+	})
+
+	game.settings.register(MODULE_ID, 'ttsModel', {
+		name: 'FOUNDRYAI.Settings.TTSModel',
+		hint: 'FOUNDRYAI.Settings.TTSModelHint',
+		scope: 'world',
+		config: false,
+		type: String,
+		default: 'openai/tts-1',
+		onChange: () => {
+			Hooks.callAll(`${MODULE_ID}.settingsChanged`, 'ttsModel')
+		},
+	})
+
 	// ---- RAG Configuration ----
 
 	game.settings.register(MODULE_ID, 'journalFolders', {
@@ -101,6 +132,15 @@ export function registerSettings(): void {
 	game.settings.register(MODULE_ID, 'sceneFolders', {
 		name: 'FOUNDRYAI.Settings.SceneFolders',
 		hint: 'FOUNDRYAI.Settings.SceneFoldersHint',
+		scope: 'world',
+		config: false,
+		type: Array,
+		default: [],
+	})
+
+	game.settings.register(MODULE_ID, 'macroFolders', {
+		name: 'FOUNDRYAI.Settings.MacroFolders',
+		hint: 'FOUNDRYAI.Settings.MacroFoldersHint',
 		scope: 'world',
 		config: false,
 		type: Array,
@@ -290,6 +330,42 @@ export function registerSettings(): void {
 	game.settings.register(MODULE_ID, 'enableSpatialTools', {
 		name: 'Spatial Tools',
 		hint: 'Allow the AI to measure distances, find tokens in range, and place templates',
+		scope: 'world',
+		config: false,
+		type: Boolean,
+		default: true,
+	})
+
+	game.settings.register(MODULE_ID, 'enableActorTools', {
+		name: 'Actor Tools',
+		hint: 'Allow the AI to create, update, and delete actors and manage their items',
+		scope: 'world',
+		config: false,
+		type: Boolean,
+		default: true,
+	})
+
+	game.settings.register(MODULE_ID, 'enableItemTools', {
+		name: 'Item Tools',
+		hint: 'Allow the AI to create, update, and delete world items',
+		scope: 'world',
+		config: false,
+		type: Boolean,
+		default: true,
+	})
+
+	game.settings.register(MODULE_ID, 'enableMacroTools', {
+		name: 'Macro Tools',
+		hint: 'Allow the AI to create, update, list, and execute macros in allowed folders',
+		scope: 'world',
+		config: false,
+		type: Boolean,
+		default: true,
+	})
+
+	game.settings.register(MODULE_ID, 'enableImageTools', {
+		name: 'Image & Scene Gen Tools',
+		hint: 'Allow the AI to generate images and create scenes with AI-generated maps',
 		scope: 'world',
 		config: false,
 		type: Boolean,

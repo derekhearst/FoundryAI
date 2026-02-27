@@ -32,13 +32,23 @@
   let enableSpatialTools = $state(true);
   let enableTTS = $state(true);
   let ttsVoice = $state('nova');
+  let enableActorTools = $state(true);
+  let enableItemTools = $state(true);
+  let enableMacroTools = $state(true);
+  let enableImageTools = $state(true);
+  let imageModel = $state('openai/dall-e-3');
+  let ttsModel = $state('openai/tts-1');
   let systemPromptOverride = $state('');
   let selectedJournalFolders = $state<string[]>([]);
   let selectedActorFolders = $state<string[]>([]);
   let selectedSceneFolders = $state<string[]>([]);
+  let selectedMacroFolders = $state<string[]>([]);
 
   let chatModels = $state<ModelInfo[]>([]);
   let embeddingModels = $state<ModelInfo[]>([]);
+  let imageModels = $state<ModelInfo[]>([]);
+  let ttsModels = $state<ModelInfo[]>([]);
+  let macroFolders = $state<Array<{ id: string; name: string; path: string }>>([]);
   let journalFolders = $state<Array<{ id: string; name: string; path: string }>>([]);
   let actorFolders = $state<Array<{ id: string; name: string; path: string }>>([]);
   let sceneFolders = $state<Array<{ id: string; name: string; path: string }>>([]);
@@ -75,16 +85,24 @@
       enableSpatialTools = getSetting('enableSpatialTools') ?? true;
       enableTTS = getSetting('enableTTS') ?? true;
       ttsVoice = getSetting('ttsVoice') || 'nova';
+      enableActorTools = getSetting('enableActorTools') ?? true;
+      enableItemTools = getSetting('enableItemTools') ?? true;
+      enableMacroTools = getSetting('enableMacroTools') ?? true;
+      enableImageTools = getSetting('enableImageTools') ?? true;
+      imageModel = getSetting('imageModel') || 'openai/dall-e-3';
+      ttsModel = getSetting('ttsModel') || 'openai/tts-1';
       systemPromptOverride = getSetting('systemPromptOverride') || '';
       selectedJournalFolders = getSetting('journalFolders') || [];
       selectedActorFolders = getSetting('actorFolders') || [];
       selectedSceneFolders = getSetting('sceneFolders') || [];
+      selectedMacroFolders = getSetting('macroFolders') || [];
     } catch { /* settings not registered yet */ }
 
     // Load available folders
     journalFolders = collectionReader.getJournalFolders();
     actorFolders = collectionReader.getActorFolders();
     sceneFolders = collectionReader.getSceneFolders();
+    macroFolders = collectionReader.getMacroFolders();
 
     // Load index stats
     embeddingService.getStats().then(stats => {
@@ -110,6 +128,8 @@
       embeddingModels = allModels.filter(m =>
         m.id.includes('embedding')
       ).sort((a, b) => a.name.localeCompare(b.name));
+      imageModels = await openRouterService.listImageModels();
+      ttsModels = await openRouterService.listTTSModels();
     } catch (err: any) {
       ui.notifications.error(`Failed to load models: ${err.message}`);
     } finally {
@@ -164,13 +184,20 @@
       await setSetting('enableSpatialTools', enableSpatialTools);
       await setSetting('enableTTS', enableTTS);
       await setSetting('ttsVoice', ttsVoice);
+      await setSetting('enableActorTools', enableActorTools);
+      await setSetting('enableItemTools', enableItemTools);
+      await setSetting('enableMacroTools', enableMacroTools);
+      await setSetting('enableImageTools', enableImageTools);
+      await setSetting('imageModel', imageModel);
+      await setSetting('ttsModel', ttsModel);
       await setSetting('systemPromptOverride', systemPromptOverride);
       await setSetting('journalFolders', selectedJournalFolders);
       await setSetting('actorFolders', selectedActorFolders);
       await setSetting('sceneFolders', selectedSceneFolders);
+      await setSetting('macroFolders', selectedMacroFolders);
 
       // Reconfigure the service with all model settings
-      openRouterService.configure({ apiKey, defaultModel: chatModel, embeddingModel });
+      openRouterService.configure({ apiKey, defaultModel: chatModel, embeddingModel, imageModel, ttsModel });
 
       // Refresh stats display
       await refreshStats();
@@ -296,6 +323,32 @@
       </div>
 
       <div class="field">
+        <label for="image-model">Image Generation Model</label>
+        {#if imageModels.length > 0}
+          <select id="image-model" bind:value={imageModel}>
+            {#each imageModels as model (model.id)}
+              <option value={model.id}>{model.name} ({model.id})</option>
+            {/each}
+          </select>
+        {:else}
+          <input id="image-model" type="text" bind:value={imageModel} placeholder="e.g. openai/dall-e-3" />
+        {/if}
+      </div>
+
+      <div class="field">
+        <label for="tts-model">Text-to-Speech Model</label>
+        {#if ttsModels.length > 0}
+          <select id="tts-model" bind:value={ttsModel}>
+            {#each ttsModels as model (model.id)}
+              <option value={model.id}>{model.name} ({model.id})</option>
+            {/each}
+          </select>
+        {:else}
+          <input id="tts-model" type="text" bind:value={ttsModel} placeholder="e.g. openai/tts-1" />
+        {/if}
+      </div>
+
+      <div class="field">
         <label for="embedding-model">Embedding Model</label>
         {#if embeddingModels.length > 0}
           <select id="embedding-model" bind:value={embeddingModel}>
@@ -354,6 +407,10 @@
         <label><input type="checkbox" bind:checked={enableChatTools} /> Chat Tools (post messages, NPC dialogue)</label>
         <label><input type="checkbox" bind:checked={enableCompendiumTools} /> Compendium Tools (search, import entries)</label>
         <label><input type="checkbox" bind:checked={enableSpatialTools} /> Spatial Tools (measure distance, templates)</label>
+        <label><input type="checkbox" bind:checked={enableActorTools} /> Actor Tools (create, update, delete actors)</label>
+        <label><input type="checkbox" bind:checked={enableItemTools} /> Item Tools (create, update, delete items)</label>
+        <label><input type="checkbox" bind:checked={enableMacroTools} /> Macro Tools (create, update, execute macros)</label>
+        <label><input type="checkbox" bind:checked={enableImageTools} /> Image Tools (generate images, create scenes)</label>
       </div>
       {/if}
 
@@ -481,6 +538,26 @@
                   type="checkbox"
                   checked={selectedSceneFolders.includes(folder.id)}
                   onchange={() => { selectedSceneFolders = toggleFolder(selectedSceneFolders, folder.id); }}
+                />
+                <span title={folder.path}>{folder.path}</span>
+              </label>
+            {/each}
+          {/if}
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="field-label"><i class="fas fa-terminal"></i> Macro Folders</span>
+        <div class="folder-list">
+          {#if macroFolders.length === 0}
+            <span class="empty-hint">No macro folders found in this world.</span>
+          {:else}
+            {#each macroFolders as folder (folder.id)}
+              <label class="folder-item">
+                <input
+                  type="checkbox"
+                  checked={selectedMacroFolders.includes(folder.id)}
+                  onchange={() => { selectedMacroFolders = toggleFolder(selectedMacroFolders, folder.id); }}
                 />
                 <span title={folder.path}>{folder.path}</span>
               </label>

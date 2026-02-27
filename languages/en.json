@@ -48,7 +48,28 @@
 			"EnableToolsHint": "Allow the AI to search journals, create entries, and interact with the world.",
 
 			"ShowSidebarTab": "Show Sidebar Tab",
-			"ShowSidebarTabHint": "Add a FoundryAI tab to the sidebar."
+			"ShowSidebarTabHint": "Add a FoundryAI tab to the sidebar.",
+
+			"ImageModel": "Image Generation Model",
+			"ImageModelHint": "The model used for AI image generation (e.g. openai/dall-e-3).",
+
+			"TTSModel": "Text-to-Speech Model",
+			"TTSModelHint": "The model used for text-to-speech audio generation.",
+
+			"MacroFolders": "Macro Folders",
+			"MacroFoldersHint": "Select which macro folders the AI can access and execute.",
+
+			"EnableActorTools": "Enable Actor Tools",
+			"EnableActorToolsHint": "Allow the AI to create, update, and delete actors.",
+
+			"EnableItemTools": "Enable Item Tools",
+			"EnableItemToolsHint": "Allow the AI to create, update, and delete world items.",
+
+			"EnableMacroTools": "Enable Macro Tools",
+			"EnableMacroToolsHint": "Allow the AI to list, create, update, and execute macros.",
+
+			"EnableImageTools": "Enable Image Tools",
+			"EnableImageToolsHint": "Allow the AI to generate images and create scenes with AI maps."
 		},
 
 		"Chat": {

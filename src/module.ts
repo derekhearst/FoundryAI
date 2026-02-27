@@ -46,6 +46,8 @@ Hooks.once('ready', async () => {
 			apiKey,
 			defaultModel: getSetting('chatModel'),
 			embeddingModel: getSetting('embeddingModel'),
+			imageModel: getSetting('imageModel'),
+			ttsModel: getSetting('ttsModel'),
 		})
 	}
 
@@ -94,6 +96,8 @@ Hooks.once('ready', async () => {
 					apiKey: newKey,
 					defaultModel: getSetting('chatModel'),
 					embeddingModel: getSetting('embeddingModel'),
+					imageModel: getSetting('imageModel'),
+					ttsModel: getSetting('ttsModel'),
 				})
 		}
 	})

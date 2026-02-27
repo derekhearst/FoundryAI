@@ -5,6 +5,7 @@
 import { embeddingService } from './embedding-service'
 import { collectionReader } from './collection-reader'
 import { getSetting } from '../settings'
+import { openRouterService } from './openrouter-service'
 import type { ToolDefinition, ToolCall } from './openrouter-service'
 
 // ---- Folder Permission Helpers ----
@@ -64,6 +65,24 @@ function isSceneFolderAllowed(folderId: string | undefined | null): boolean {
 	const isAllowed = allAllowed.includes(folderId)
 	console.debug(
 		`FoundryAI | isSceneFolderAllowed: folderId="${folderId}", allowed=[${allowed.join(',')}], resolved=[${allAllowed.join(',')}], isAllowed=${isAllowed}`,
+	)
+	return isAllowed
+}
+
+function isMacroFolderAllowed(folderId: string | undefined | null): boolean {
+	const allowed = getSetting('macroFolders') || []
+	if (allowed.length === 0) {
+		console.debug(`FoundryAI | isMacroFolderAllowed: no restrictions (allowed empty), returning true`)
+		return true
+	}
+	if (!folderId) {
+		console.debug(`FoundryAI | isMacroFolderAllowed: folderId is null/undefined, returning false`)
+		return false
+	}
+	const allAllowed = collectionReader.resolveWithChildren(allowed)
+	const isAllowed = allAllowed.includes(folderId)
+	console.debug(
+		`FoundryAI | isMacroFolderAllowed: folderId="${folderId}", allowed=[${allowed.join(',')}], resolved=[${allAllowed.join(',')}], isAllowed=${isAllowed}`,
 	)
 	return isAllowed
 }
@@ -923,6 +942,390 @@ const SPATIAL_TOOLS: ToolDefinition[] = [
 
 // ---- Combine all tool definitions ----
 
+// == Actor Tools ==
+const ACTOR_TOOLS: ToolDefinition[] = [
+	{
+		type: 'function',
+		function: {
+			name: 'create_actor',
+			description:
+				'Create a new actor (NPC, character, vehicle, etc.) in the world with specified data. Use this to build new NPCs, monsters, or characters from scratch.',
+			parameters: {
+				type: 'object',
+				properties: {
+					name: { type: 'string', description: 'The name of the actor' },
+					type: {
+						type: 'string',
+						description: 'The actor type (e.g. "npc", "character", "vehicle"). Default: "npc"',
+					},
+					data: {
+						type: 'object',
+						description:
+							'System-specific data to set on the actor. For D&D 5e this includes abilities, hp, ac, biography, etc. Use the structure: { "system.attributes.hp.max": 30, "system.abilities.str.value": 16, "system.details.biography.value": "<p>Bio here</p>" }',
+					},
+					img: { type: 'string', description: 'Optional image path for the actor token/portrait' },
+					folder_name: {
+						type: 'string',
+						description: 'Name of the folder to place the actor in. Will be created if it does not exist.',
+					},
+					folder_id: { type: 'string', description: 'Folder ID to place the actor in. Prefer folder_name.' },
+				},
+				required: ['name'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'update_actor',
+			description:
+				'Update an existing actor\'s data (biography, abilities, HP, AC, stats, etc.). Uses dot-notation paths like "system.attributes.hp.max".',
+			parameters: {
+				type: 'object',
+				properties: {
+					actor_id: { type: 'string', description: 'The ID of the actor to update' },
+					data: {
+						type: 'object',
+						description:
+							'Key-value pairs of data to update. Use dot-notation for nested paths, e.g. { "system.attributes.hp.max": 50, "system.details.biography.value": "<p>New bio</p>" }',
+					},
+				},
+				required: ['actor_id', 'data'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'delete_actor',
+			description: 'Permanently delete an actor from the world. This cannot be undone.',
+			parameters: {
+				type: 'object',
+				properties: {
+					actor_id: { type: 'string', description: 'The ID of the actor to delete' },
+				},
+				required: ['actor_id'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'add_items_to_actor',
+			description:
+				'Add one or more items (weapons, armor, spells, features, etc.) to an actor. Items are defined with name, type, and system data.',
+			parameters: {
+				type: 'object',
+				properties: {
+					actor_id: { type: 'string', description: 'The ID of the actor to add items to' },
+					items: {
+						type: 'array',
+						description: 'Array of item data objects to add',
+						items: {
+							type: 'object',
+							properties: {
+								name: { type: 'string', description: 'Item name' },
+								type: {
+									type: 'string',
+									description:
+										'Item type (e.g. "weapon", "equipment", "spell", "feat", "consumable", "tool", "loot", "background", "class", "subclass")',
+								},
+								img: { type: 'string', description: 'Optional image path' },
+								data: {
+									type: 'object',
+									description: 'System-specific item data (damage, weight, description, etc.)',
+								},
+							},
+							required: ['name', 'type'],
+						},
+					},
+				},
+				required: ['actor_id', 'items'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'remove_item_from_actor',
+			description: 'Remove an item from an actor by its embedded item ID.',
+			parameters: {
+				type: 'object',
+				properties: {
+					actor_id: { type: 'string', description: 'The actor ID' },
+					item_id: { type: 'string', description: 'The embedded item ID to remove' },
+				},
+				required: ['actor_id', 'item_id'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'update_actor_item',
+			description: 'Update an item that is already on an actor (e.g. change quantity, charges, equipped state, description).',
+			parameters: {
+				type: 'object',
+				properties: {
+					actor_id: { type: 'string', description: 'The actor ID' },
+					item_id: { type: 'string', description: 'The embedded item ID to update' },
+					data: {
+						type: 'object',
+						description: 'Key-value pairs to update on the item, e.g. { "system.quantity": 5, "system.equipped": true }',
+					},
+				},
+				required: ['actor_id', 'item_id', 'data'],
+			},
+		},
+	},
+]
+
+// == Item Tools ==
+const ITEM_TOOLS: ToolDefinition[] = [
+	{
+		type: 'function',
+		function: {
+			name: 'create_item',
+			description:
+				'Create a standalone world item (weapon, spell, feature, consumable, etc.) that can later be added to actors or given to players.',
+			parameters: {
+				type: 'object',
+				properties: {
+					name: { type: 'string', description: 'The item name' },
+					type: {
+						type: 'string',
+						description:
+							'Item type (e.g. "weapon", "equipment", "spell", "feat", "consumable", "tool", "loot")',
+					},
+					data: {
+						type: 'object',
+						description:
+							'System-specific item data. For D&D 5e: { "system.description.value": "<p>...</p>", "system.weight": 5, "system.price.value": 100 }',
+					},
+					img: { type: 'string', description: 'Optional image path' },
+					folder_name: { type: 'string', description: 'Folder name to create the item in' },
+					folder_id: { type: 'string', description: 'Folder ID to create the item in' },
+				},
+				required: ['name', 'type'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'get_item',
+			description: 'Get full details of a world item by its ID.',
+			parameters: {
+				type: 'object',
+				properties: {
+					item_id: { type: 'string', description: 'The item ID' },
+				},
+				required: ['item_id'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'update_item',
+			description: 'Update an existing world item\'s data.',
+			parameters: {
+				type: 'object',
+				properties: {
+					item_id: { type: 'string', description: 'The item ID' },
+					data: {
+						type: 'object',
+						description: 'Key-value pairs to update, e.g. { "name": "New Name", "system.description.value": "<p>...</p>" }',
+					},
+				},
+				required: ['item_id', 'data'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'delete_item',
+			description: 'Delete a world item permanently.',
+			parameters: {
+				type: 'object',
+				properties: {
+					item_id: { type: 'string', description: 'The item ID to delete' },
+				},
+				required: ['item_id'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'list_items',
+			description: 'List world items, optionally filtered by type.',
+			parameters: {
+				type: 'object',
+				properties: {
+					type: {
+						type: 'string',
+						description: 'Filter by item type (e.g. "weapon", "spell", "feat"). Omit for all items.',
+					},
+					max_results: {
+						type: 'number',
+						description: 'Maximum results to return (default: 20)',
+					},
+				},
+			},
+		},
+	},
+]
+
+// == Macro Tools ==
+const MACRO_TOOLS: ToolDefinition[] = [
+	{
+		type: 'function',
+		function: {
+			name: 'list_macros',
+			description: 'List macros the AI has access to (filtered by allowed macro folders).',
+			parameters: {
+				type: 'object',
+				properties: {},
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'get_macro',
+			description: 'Read a macro\'s script content by ID.',
+			parameters: {
+				type: 'object',
+				properties: {
+					macro_id: { type: 'string', description: 'The macro ID' },
+				},
+				required: ['macro_id'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'create_macro',
+			description: 'Create a new macro with a name, type, and command script.',
+			parameters: {
+				type: 'object',
+				properties: {
+					name: { type: 'string', description: 'The macro name' },
+					type: {
+						type: 'string',
+						enum: ['script', 'chat'],
+						description: 'Macro type: "script" for JavaScript, "chat" for chat command. Default: "script"',
+					},
+					command: { type: 'string', description: 'The macro script/command content' },
+					img: { type: 'string', description: 'Optional icon image path' },
+					folder_name: { type: 'string', description: 'Folder name to place the macro in' },
+					folder_id: { type: 'string', description: 'Folder ID to place the macro in' },
+				},
+				required: ['name', 'command'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'update_macro',
+			description: 'Update an existing macro\'s name or command content.',
+			parameters: {
+				type: 'object',
+				properties: {
+					macro_id: { type: 'string', description: 'The macro ID' },
+					name: { type: 'string', description: 'New name (optional)' },
+					command: { type: 'string', description: 'New command/script content (optional)' },
+				},
+				required: ['macro_id'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'execute_macro',
+			description:
+				'Execute a macro by ID and return its result. For script macros, the return value of the script is captured.',
+			parameters: {
+				type: 'object',
+				properties: {
+					macro_id: { type: 'string', description: 'The macro ID to execute' },
+				},
+				required: ['macro_id'],
+			},
+		},
+	},
+]
+
+// == Image & Scene Generation Tools ==
+const IMAGE_TOOLS: ToolDefinition[] = [
+	{
+		type: 'function',
+		function: {
+			name: 'generate_image',
+			description:
+				'Generate an image from a text prompt using AI image generation. Returns the image URL. Can be used for token art, item art, portraits, etc.',
+			parameters: {
+				type: 'object',
+				properties: {
+					prompt: {
+						type: 'string',
+						description:
+							'Detailed description of the image to generate. Be specific about style, lighting, perspective, and content.',
+					},
+					size: {
+						type: 'string',
+						enum: ['1024x1024', '1792x1024', '1024x1792', '512x512'],
+						description: 'Image dimensions. Use 1792x1024 for landscape maps, 1024x1792 for portrait, 1024x1024 for square. Default: 1024x1024',
+					},
+				},
+				required: ['prompt'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'generate_scene',
+			description:
+				'Generate a new Foundry VTT scene with an AI-generated background map image. Provide a description of the map and the scene will be created with the generated image as its background.',
+			parameters: {
+				type: 'object',
+				properties: {
+					name: { type: 'string', description: 'The scene name' },
+					prompt: {
+						type: 'string',
+						description:
+							'Detailed description of the battle map / scene background to generate. Be specific about environment, style (top-down, isometric, etc.), lighting, and key features.',
+					},
+					grid_distance: {
+						type: 'number',
+						description: 'Grid square distance value (default: 5 for 5ft squares)',
+					},
+					grid_units: {
+						type: 'string',
+						description: 'Grid distance units (default: "ft")',
+					},
+					size: {
+						type: 'string',
+						enum: ['1024x1024', '1792x1024', '1024x1792'],
+						description: 'Map dimensions. 1792x1024 for wide landscape maps, 1024x1024 for square. Default: 1792x1024',
+					},
+					folder_name: { type: 'string', description: 'Scene folder name to create the scene in' },
+					folder_id: { type: 'string', description: 'Scene folder ID to create the scene in' },
+				},
+				required: ['name', 'prompt'],
+			},
+		},
+	},
+]
+
+// ---- Combine all static tool definition arrays ----
+
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
 	...CORE_TOOLS,
 	...SCENE_TOOLS,
@@ -933,6 +1336,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
 	...CHAT_TOOLS,
 	...COMPENDIUM_TOOLS,
 	...SPATIAL_TOOLS,
+	...ACTOR_TOOLS,
+	...ITEM_TOOLS,
+	...MACRO_TOOLS,
+	...IMAGE_TOOLS,
 ]
 
 /**
@@ -951,6 +1358,10 @@ export function getEnabledTools(): ToolDefinition[] {
 	if (getSetting('enableChatTools')) tools.push(...CHAT_TOOLS)
 	if (getSetting('enableCompendiumTools')) tools.push(...COMPENDIUM_TOOLS)
 	if (getSetting('enableSpatialTools')) tools.push(...SPATIAL_TOOLS)
+	if (getSetting('enableActorTools')) tools.push(...ACTOR_TOOLS)
+	if (getSetting('enableItemTools')) tools.push(...ITEM_TOOLS)
+	if (getSetting('enableMacroTools')) tools.push(...MACRO_TOOLS)
+	if (getSetting('enableImageTools')) tools.push(...IMAGE_TOOLS)
 
 	return tools
 }
@@ -1081,6 +1492,50 @@ export async function executeTool(toolCall: ToolCall): Promise<string> {
 				return handleTokensInRange(args)
 			case 'create_measured_template':
 				return await handleCreateMeasuredTemplate(args)
+
+			// Actor tools
+			case 'create_actor':
+				return await handleCreateActor(args.name, args.type, args.data, args.img, args.folder_name, args.folder_id)
+			case 'update_actor':
+				return await handleUpdateActor(args.actor_id, args.data)
+			case 'delete_actor':
+				return await handleDeleteActor(args.actor_id)
+			case 'add_items_to_actor':
+				return await handleAddItemsToActor(args.actor_id, args.items)
+			case 'remove_item_from_actor':
+				return await handleRemoveItemFromActor(args.actor_id, args.item_id)
+			case 'update_actor_item':
+				return await handleUpdateActorItem(args.actor_id, args.item_id, args.data)
+
+			// Item tools
+			case 'create_item':
+				return await handleCreateItem(args.name, args.type, args.data, args.img, args.folder_name, args.folder_id)
+			case 'get_item':
+				return handleGetItem(args.item_id)
+			case 'update_item':
+				return await handleUpdateItem(args.item_id, args.data)
+			case 'delete_item':
+				return await handleDeleteItem(args.item_id)
+			case 'list_items':
+				return handleListItems(args.type, args.max_results)
+
+			// Macro tools
+			case 'list_macros':
+				return handleListMacros()
+			case 'get_macro':
+				return handleGetMacro(args.macro_id)
+			case 'create_macro':
+				return await handleCreateMacro(args.name, args.type, args.command, args.img, args.folder_name, args.folder_id)
+			case 'update_macro':
+				return await handleUpdateMacro(args.macro_id, args.name, args.command)
+			case 'execute_macro':
+				return await handleExecuteMacro(args.macro_id)
+
+			// Image & Scene generation tools
+			case 'generate_image':
+				return await handleGenerateImage(args.prompt, args.size)
+			case 'generate_scene':
+				return await handleGenerateScene(args)
 
 			default:
 				console.warn(`FoundryAI | Unknown tool called: "${funcName}"`)
@@ -2355,4 +2810,584 @@ async function handleCreateMeasuredTemplate(args: Record<string, any>): Promise<
 		distance: args.distance,
 		message: `Created ${args.type} template (${args.distance}${scene.grid?.units || 'ft'}) at (${args.x}, ${args.y})`,
 	})
+}
+
+// ===============================
+// ACTOR TOOL HANDLERS
+// ===============================
+
+async function handleCreateActor(
+	name: string,
+	type?: string,
+	data?: Record<string, any>,
+	img?: string,
+	folderName?: string,
+	folderId?: string,
+): Promise<string> {
+	console.log(`FoundryAI | create_actor: name="${name}", type="${type}", folderName="${folderName}"`)
+
+	let resolvedFolderId = folderId || null
+
+	if (folderName && !resolvedFolderId) {
+		let folder = game.folders?.find((f: any) => f.type === 'Actor' && f.name === folderName)
+		if (!folder) {
+			folder = await Folder.create({ name: folderName, type: 'Actor', parent: null } as any)
+		}
+		resolvedFolderId = folder?.id || null
+	}
+
+	const actorData: Record<string, any> = {
+		name,
+		type: type || 'npc',
+	}
+
+	if (resolvedFolderId) actorData.folder = resolvedFolderId
+	if (img) actorData.img = img
+
+	// Apply system-specific data using dot-notation expansion
+	if (data) {
+		for (const [key, value] of Object.entries(data)) {
+			actorData[key] = value
+		}
+	}
+
+	const actor = await Actor.create(actorData)
+
+	return JSON.stringify({
+		success: true,
+		id: actor.id,
+		name: actor.name,
+		type: actor.type,
+		folder: folderName || 'Root',
+		message: `Created actor "${name}" (${type || 'npc'}) in folder "${folderName || 'Root'}"`,
+	})
+}
+
+async function handleUpdateActor(actorId: string, data: Record<string, any>): Promise<string> {
+	console.log(`FoundryAI | update_actor: actorId="${actorId}"`)
+	const actor = game.actors?.get(actorId)
+	if (!actor) return JSON.stringify({ error: `Actor not found: ${actorId}` })
+
+	if (!isActorFolderAllowed(actor.folder?.id)) {
+		return JSON.stringify({ error: `Actor not found: ${actorId}` })
+	}
+
+	await actor.update(data)
+
+	return JSON.stringify({
+		success: true,
+		id: actorId,
+		name: actor.name,
+		message: `Updated actor "${actor.name}"`,
+	})
+}
+
+async function handleDeleteActor(actorId: string): Promise<string> {
+	console.log(`FoundryAI | delete_actor: actorId="${actorId}"`)
+	const actor = game.actors?.get(actorId)
+	if (!actor) return JSON.stringify({ error: `Actor not found: ${actorId}` })
+
+	if (!isActorFolderAllowed(actor.folder?.id)) {
+		return JSON.stringify({ error: `Actor not found: ${actorId}` })
+	}
+
+	const actorName = actor.name
+	await actor.delete()
+
+	return JSON.stringify({
+		success: true,
+		message: `Deleted actor "${actorName}"`,
+	})
+}
+
+async function handleAddItemsToActor(
+	actorId: string,
+	items: Array<{ name: string; type: string; img?: string; data?: Record<string, any> }>,
+): Promise<string> {
+	console.log(`FoundryAI | add_items_to_actor: actorId="${actorId}", items=${items.length}`)
+	const actor = game.actors?.get(actorId)
+	if (!actor) return JSON.stringify({ error: `Actor not found: ${actorId}` })
+
+	if (!isActorFolderAllowed(actor.folder?.id)) {
+		return JSON.stringify({ error: `Actor not found: ${actorId}` })
+	}
+
+	const itemData = items.map((item) => {
+		const base: Record<string, any> = {
+			name: item.name,
+			type: item.type,
+		}
+		if (item.img) base.img = item.img
+		if (item.data) {
+			for (const [key, value] of Object.entries(item.data)) {
+				base[key] = value
+			}
+		}
+		return base
+	})
+
+	const created = await actor.createEmbeddedDocuments('Item', itemData)
+
+	return JSON.stringify({
+		success: true,
+		actor_id: actorId,
+		actor_name: actor.name,
+		items_added: created.map((i: any) => ({ id: i.id, name: i.name, type: i.type })),
+		count: created.length,
+		message: `Added ${created.length} item(s) to "${actor.name}"`,
+	})
+}
+
+async function handleRemoveItemFromActor(actorId: string, itemId: string): Promise<string> {
+	console.log(`FoundryAI | remove_item_from_actor: actorId="${actorId}", itemId="${itemId}"`)
+	const actor = game.actors?.get(actorId)
+	if (!actor) return JSON.stringify({ error: `Actor not found: ${actorId}` })
+
+	if (!isActorFolderAllowed(actor.folder?.id)) {
+		return JSON.stringify({ error: `Actor not found: ${actorId}` })
+	}
+
+	const item = actor.items?.get(itemId)
+	if (!item) return JSON.stringify({ error: `Item not found on actor: ${itemId}` })
+
+	const itemName = item.name
+	await actor.deleteEmbeddedDocuments('Item', [itemId])
+
+	return JSON.stringify({
+		success: true,
+		message: `Removed "${itemName}" from "${actor.name}"`,
+	})
+}
+
+async function handleUpdateActorItem(
+	actorId: string,
+	itemId: string,
+	data: Record<string, any>,
+): Promise<string> {
+	console.log(`FoundryAI | update_actor_item: actorId="${actorId}", itemId="${itemId}"`)
+	const actor = game.actors?.get(actorId)
+	if (!actor) return JSON.stringify({ error: `Actor not found: ${actorId}` })
+
+	if (!isActorFolderAllowed(actor.folder?.id)) {
+		return JSON.stringify({ error: `Actor not found: ${actorId}` })
+	}
+
+	const item = actor.items?.get(itemId)
+	if (!item) return JSON.stringify({ error: `Item not found on actor: ${itemId}` })
+
+	await item.update(data)
+
+	return JSON.stringify({
+		success: true,
+		message: `Updated "${item.name}" on "${actor.name}"`,
+	})
+}
+
+// ===============================
+// ITEM TOOL HANDLERS
+// ===============================
+
+async function handleCreateItem(
+	name: string,
+	type: string,
+	data?: Record<string, any>,
+	img?: string,
+	folderName?: string,
+	folderId?: string,
+): Promise<string> {
+	console.log(`FoundryAI | create_item: name="${name}", type="${type}"`)
+
+	let resolvedFolderId = folderId || null
+
+	if (folderName && !resolvedFolderId) {
+		let folder = game.folders?.find((f: any) => f.type === 'Item' && f.name === folderName)
+		if (!folder) {
+			folder = await Folder.create({ name: folderName, type: 'Item', parent: null } as any)
+		}
+		resolvedFolderId = folder?.id || null
+	}
+
+	const itemData: Record<string, any> = {
+		name,
+		type: type || 'loot',
+	}
+
+	if (resolvedFolderId) itemData.folder = resolvedFolderId
+	if (img) itemData.img = img
+
+	if (data) {
+		for (const [key, value] of Object.entries(data)) {
+			itemData[key] = value
+		}
+	}
+
+	const item = await Item.create(itemData)
+
+	return JSON.stringify({
+		success: true,
+		id: item.id,
+		name: item.name,
+		type: item.type,
+		message: `Created item "${name}" (${type})`,
+	})
+}
+
+function handleGetItem(itemId: string): string {
+	console.log(`FoundryAI | get_item: itemId="${itemId}"`)
+	const item = game.items?.get(itemId)
+	if (!item) return JSON.stringify({ error: `Item not found: ${itemId}` })
+
+	const desc =
+		(item as any).system?.description?.value ||
+		(item as any).system?.description ||
+		''
+	const cleanDesc = typeof desc === 'string' ? desc.replace(/<[^>]+>/g, '').trim() : ''
+
+	return JSON.stringify({
+		id: item.id,
+		name: item.name,
+		type: item.type,
+		img: item.img,
+		folder: (item as any).folder?.name || 'Root',
+		description: cleanDesc.slice(0, 2000),
+		system: (item as any).system,
+	})
+}
+
+async function handleUpdateItem(itemId: string, data: Record<string, any>): Promise<string> {
+	console.log(`FoundryAI | update_item: itemId="${itemId}"`)
+	const item = game.items?.get(itemId)
+	if (!item) return JSON.stringify({ error: `Item not found: ${itemId}` })
+
+	await item.update(data)
+
+	return JSON.stringify({
+		success: true,
+		id: itemId,
+		name: item.name,
+		message: `Updated item "${item.name}"`,
+	})
+}
+
+async function handleDeleteItem(itemId: string): Promise<string> {
+	console.log(`FoundryAI | delete_item: itemId="${itemId}"`)
+	const item = game.items?.get(itemId)
+	if (!item) return JSON.stringify({ error: `Item not found: ${itemId}` })
+
+	const itemName = item.name
+	await item.delete()
+
+	return JSON.stringify({
+		success: true,
+		message: `Deleted item "${itemName}"`,
+	})
+}
+
+function handleListItems(type?: string, maxResults?: number): string {
+	console.log(`FoundryAI | list_items: type="${type}", maxResults=${maxResults}`)
+	if (!game.items) return JSON.stringify({ error: 'Items collection not available' })
+
+	const max = maxResults || 20
+	const items: Array<{ id: string; name: string; type: string; folder: string }> = []
+
+	for (const item of game.items.values()) {
+		if (type && item.type !== type) continue
+		items.push({
+			id: item.id,
+			name: item.name,
+			type: item.type,
+			folder: (item as any).folder?.name || 'Root',
+		})
+		if (items.length >= max) break
+	}
+
+	return JSON.stringify({ items, count: items.length })
+}
+
+// ===============================
+// MACRO TOOL HANDLERS
+// ===============================
+
+function handleListMacros(): string {
+	console.log(`FoundryAI | list_macros`)
+	if (!game.macros) return JSON.stringify({ error: 'Macros collection not available' })
+
+	const macros: Array<{ id: string; name: string; type: string; folder: string }> = []
+
+	for (const macro of game.macros.values()) {
+		if (!isMacroFolderAllowed((macro as any).folder?.id)) continue
+
+		macros.push({
+			id: macro.id,
+			name: macro.name,
+			type: macro.type,
+			folder: (macro as any).folder?.name || 'Root',
+		})
+	}
+
+	return JSON.stringify({ macros, count: macros.length })
+}
+
+function handleGetMacro(macroId: string): string {
+	console.log(`FoundryAI | get_macro: macroId="${macroId}"`)
+	const macro = game.macros?.get(macroId)
+	if (!macro) return JSON.stringify({ error: `Macro not found: ${macroId}` })
+
+	if (!isMacroFolderAllowed((macro as any).folder?.id)) {
+		return JSON.stringify({ error: `Macro not found: ${macroId}` })
+	}
+
+	return JSON.stringify({
+		id: macro.id,
+		name: macro.name,
+		type: macro.type,
+		command: macro.command,
+		folder: (macro as any).folder?.name || 'Root',
+		img: macro.img,
+	})
+}
+
+async function handleCreateMacro(
+	name: string,
+	type?: string,
+	command?: string,
+	img?: string,
+	folderName?: string,
+	folderId?: string,
+): Promise<string> {
+	console.log(`FoundryAI | create_macro: name="${name}", type="${type}"`)
+
+	let resolvedFolderId = folderId || null
+
+	if (folderName && !resolvedFolderId) {
+		let folder = game.folders?.find((f: any) => f.type === 'Macro' && f.name === folderName)
+		if (!folder) {
+			folder = await Folder.create({ name: folderName, type: 'Macro', parent: null } as any)
+		}
+		resolvedFolderId = folder?.id || null
+	}
+
+	const macroData: Record<string, any> = {
+		name,
+		type: type || 'script',
+		command: command || '',
+	}
+
+	if (resolvedFolderId) macroData.folder = resolvedFolderId
+	if (img) macroData.img = img
+
+	const macro = await Macro.create(macroData)
+
+	return JSON.stringify({
+		success: true,
+		id: macro.id,
+		name: macro.name,
+		type: macro.type,
+		message: `Created macro "${name}" (${type || 'script'})`,
+	})
+}
+
+async function handleUpdateMacro(macroId: string, name?: string, command?: string): Promise<string> {
+	console.log(`FoundryAI | update_macro: macroId="${macroId}"`)
+	const macro = game.macros?.get(macroId)
+	if (!macro) return JSON.stringify({ error: `Macro not found: ${macroId}` })
+
+	if (!isMacroFolderAllowed((macro as any).folder?.id)) {
+		return JSON.stringify({ error: `Macro not found: ${macroId}` })
+	}
+
+	const updateData: Record<string, any> = {}
+	if (name) updateData.name = name
+	if (command) updateData.command = command
+
+	await macro.update(updateData)
+
+	return JSON.stringify({
+		success: true,
+		id: macroId,
+		message: `Updated macro "${macro.name}"`,
+	})
+}
+
+async function handleExecuteMacro(macroId: string): Promise<string> {
+	console.log(`FoundryAI | execute_macro: macroId="${macroId}"`)
+	const macro = game.macros?.get(macroId)
+	if (!macro) return JSON.stringify({ error: `Macro not found: ${macroId}` })
+
+	if (!isMacroFolderAllowed((macro as any).folder?.id)) {
+		return JSON.stringify({ error: `Macro not found: ${macroId}` })
+	}
+
+	try {
+		const result = await macro.execute()
+		const resultStr = result !== undefined && result !== null ? String(result) : 'Macro executed (no return value)'
+
+		return JSON.stringify({
+			success: true,
+			macro_name: macro.name,
+			result: resultStr,
+			message: `Executed macro "${macro.name}"`,
+		})
+	} catch (error: any) {
+		return JSON.stringify({
+			error: `Macro execution failed: ${error.message}`,
+			macro_name: macro.name,
+		})
+	}
+}
+
+// ===============================
+// IMAGE & SCENE GENERATION HANDLERS
+// ===============================
+
+async function handleGenerateImage(prompt: string, size?: string): Promise<string> {
+	console.log(`FoundryAI | generate_image: prompt="${prompt.slice(0, 100)}..."`)
+
+	try {
+		const imageModel = getSetting('imageModel') || 'openai/dall-e-3'
+		const result = await openRouterService.generateImage(prompt, imageModel, size || '1024x1024')
+
+		if (result.url) {
+			// Try to download and save the image to Foundry's storage
+			try {
+				const response = await fetch(result.url)
+				const blob = await response.blob()
+				const filename = `foundry-ai-${Date.now()}.png`
+				const file = new File([blob], filename, { type: 'image/png' })
+
+				// Ensure the foundry-ai/images directory exists
+				await FilePicker.createDirectory('data', 'foundry-ai').catch(() => {})
+				await FilePicker.createDirectory('data', 'foundry-ai/images').catch(() => {})
+
+				const uploadResult = await FilePicker.upload('data', 'foundry-ai/images', file, {}, { notify: false })
+				const savedPath = (uploadResult as any)?.path || `foundry-ai/images/${filename}`
+
+				return JSON.stringify({
+					success: true,
+					path: savedPath,
+					message: `Image generated and saved to ${savedPath}`,
+				})
+			} catch (uploadErr: any) {
+				// If upload fails, still return the URL
+				console.warn('FoundryAI | Failed to save generated image locally:', uploadErr)
+				return JSON.stringify({
+					success: true,
+					url: result.url,
+					message: `Image generated (external URL — local save failed: ${uploadErr.message})`,
+				})
+			}
+		} else if (result.b64_json) {
+			// Save base64 image to Foundry storage
+			const bytes = atob(result.b64_json)
+			const arr = new Uint8Array(bytes.length)
+			for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
+			const blob = new Blob([arr], { type: 'image/png' })
+			const filename = `foundry-ai-${Date.now()}.png`
+			const file = new File([blob], filename, { type: 'image/png' })
+
+			await FilePicker.createDirectory('data', 'foundry-ai').catch(() => {})
+			await FilePicker.createDirectory('data', 'foundry-ai/images').catch(() => {})
+
+			const uploadResult = await FilePicker.upload('data', 'foundry-ai/images', file, {}, { notify: false })
+			const savedPath = (uploadResult as any)?.path || `foundry-ai/images/${filename}`
+
+			return JSON.stringify({
+				success: true,
+				path: savedPath,
+				message: `Image generated and saved to ${savedPath}`,
+			})
+		}
+
+		return JSON.stringify({ error: 'No image data in response' })
+	} catch (error: any) {
+		return JSON.stringify({ error: `Image generation failed: ${error.message}` })
+	}
+}
+
+async function handleGenerateScene(args: Record<string, any>): Promise<string> {
+	console.log(`FoundryAI | generate_scene: name="${args.name}", prompt="${(args.prompt as string).slice(0, 100)}..."`)
+
+	try {
+		// Generate the map image
+		const imageModel = getSetting('imageModel') || 'openai/dall-e-3'
+		const mapSize = args.size || '1792x1024'
+
+		// Enhance the prompt for battle map generation
+		const mapPrompt = `Top-down fantasy battle map, grid-friendly, high detail: ${args.prompt}. Style: digital illustration suitable for a tabletop RPG virtual tabletop. No text or labels.`
+
+		const result = await openRouterService.generateImage(mapPrompt, imageModel, mapSize)
+
+		let imagePath: string
+
+		if (result.url) {
+			const response = await fetch(result.url)
+			const blob = await response.blob()
+			const filename = `map-${args.name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.png`
+			const file = new File([blob], filename, { type: 'image/png' })
+
+			await FilePicker.createDirectory('data', 'foundry-ai').catch(() => {})
+			await FilePicker.createDirectory('data', 'foundry-ai/maps').catch(() => {})
+
+			const uploadResult = await FilePicker.upload('data', 'foundry-ai/maps', file, {}, { notify: false })
+			imagePath = (uploadResult as any)?.path || `foundry-ai/maps/${filename}`
+		} else if (result.b64_json) {
+			const bytes = atob(result.b64_json)
+			const arr = new Uint8Array(bytes.length)
+			for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
+			const blob = new Blob([arr], { type: 'image/png' })
+			const filename = `map-${args.name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.png`
+			const file = new File([blob], filename, { type: 'image/png' })
+
+			await FilePicker.createDirectory('data', 'foundry-ai').catch(() => {})
+			await FilePicker.createDirectory('data', 'foundry-ai/maps').catch(() => {})
+
+			const uploadResult = await FilePicker.upload('data', 'foundry-ai/maps', file, {}, { notify: false })
+			imagePath = (uploadResult as any)?.path || `foundry-ai/maps/${filename}`
+		} else {
+			return JSON.stringify({ error: 'No image data in response' })
+		}
+
+		// Resolve scene folder
+		let sceneFolderId: string | null = args.folder_id || null
+		if (args.folder_name && !sceneFolderId) {
+			let folder = game.folders?.find((f: any) => f.type === 'Scene' && f.name === args.folder_name)
+			if (!folder) {
+				folder = await Folder.create({ name: args.folder_name, type: 'Scene', parent: null } as any)
+			}
+			sceneFolderId = folder?.id || null
+		}
+
+		// Parse image dimensions for scene size
+		const [imgWidth, imgHeight] = mapSize.split('x').map(Number)
+
+		// Create the scene
+		const sceneData: Record<string, any> = {
+			name: args.name,
+			background: { src: imagePath },
+			width: imgWidth,
+			height: imgHeight,
+			grid: {
+				size: 100,
+				distance: args.grid_distance || 5,
+				units: args.grid_units || 'ft',
+			},
+			padding: 0,
+			navigation: true,
+		}
+
+		if (sceneFolderId) sceneData.folder = sceneFolderId
+
+		const scene = await Scene.create(sceneData)
+
+		return JSON.stringify({
+			success: true,
+			scene_id: scene.id,
+			scene_name: scene.name,
+			background: imagePath,
+			dimensions: `${imgWidth}x${imgHeight}`,
+			message: `Created scene "${args.name}" with AI-generated map. Use activate_scene to switch to it.`,
+		})
+	} catch (error: any) {
+		return JSON.stringify({ error: `Scene generation failed: ${error.message}` })
+	}
 }

@@ -1,20 +1,23 @@
 /* ==========================================================================
    TTS Service
-   Manages text-to-speech playback via browser Speech Synthesis API.
+   Manages text-to-speech playback via OpenRouter TTS API.
    Provides play/stop with button state management.
    ========================================================================== */
 
-let currentUtterance: SpeechSynthesisUtterance | null = null
+import { openRouterService } from './openrouter-service'
+import { getSetting } from '../settings'
+
+let currentAudio: HTMLAudioElement | null = null
 let currentButton: HTMLElement | null = null
 
 /**
- * Play TTS for the given text using the browser's Speech Synthesis API.
+ * Play TTS for the given text using OpenRouter's TTS API.
  * Stops any existing playback first.
  * Updates the button's icon to show stop → speaker states.
  */
 export async function playTTS(text: string, button: HTMLElement): Promise<void> {
 	// If clicking the same button that's playing, toggle off
-	if (currentButton === button && speechSynthesis.speaking) {
+	if (currentButton === button && currentAudio && !currentAudio.paused) {
 		stopTTS()
 		return
 	}
@@ -22,45 +25,42 @@ export async function playTTS(text: string, button: HTMLElement): Promise<void> 
 	// Stop any existing playback
 	stopTTS()
 
-	if (!('speechSynthesis' in window)) {
-		console.warn('FoundryAI | Speech Synthesis not supported in this browser')
-		throw new Error('Text-to-speech is not supported in this browser')
-	}
-
 	currentButton = button
-	button.innerHTML = '<i class="fas fa-stop"></i>'
+	button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'
 
 	try {
-		const utterance = new SpeechSynthesisUtterance(text)
-		currentUtterance = utterance
+		const voice = getSetting('ttsVoice') || 'nova'
+		const model = getSetting('ttsModel') || 'openai/tts-1'
 
-		// Try to pick a good English voice
-		const voices = speechSynthesis.getVoices()
-		const preferred = voices.find(
-			(v) =>
-				v.lang.startsWith('en') &&
-				(v.name.includes('Google') || v.name.includes('Microsoft') || v.name.includes('Natural')),
-		)
-		if (preferred) utterance.voice = preferred
-		utterance.rate = 1.0
-		utterance.pitch = 1.0
+		const audioBuffer = await openRouterService.generateSpeech(text, voice, model)
+
+		// Convert ArrayBuffer to a playable audio element
+		const blob = new Blob([audioBuffer], { type: 'audio/mpeg' })
+		const url = URL.createObjectURL(blob)
+
+		const audio = new Audio(url)
+		currentAudio = audio
+
+		button.innerHTML = '<i class="fas fa-stop"></i>'
 
 		const cleanup = () => {
 			button.innerHTML = '<i class="fas fa-volume-up"></i>'
-			if (currentUtterance === utterance) {
-				currentUtterance = null
+			URL.revokeObjectURL(url)
+			if (currentAudio === audio) {
+				currentAudio = null
 				currentButton = null
 			}
 		}
 
-		utterance.onend = cleanup
-		utterance.onerror = cleanup
+		audio.onended = cleanup
+		audio.onerror = cleanup
 
-		speechSynthesis.speak(utterance)
-		console.log('FoundryAI | TTS playing via browser Speech Synthesis')
+		await audio.play()
+		console.log('FoundryAI | TTS playing via OpenRouter API')
 	} catch (err: any) {
+		console.error('FoundryAI | TTS playback failed:', err)
 		button.innerHTML = '<i class="fas fa-volume-up"></i>'
-		currentUtterance = null
+		currentAudio = null
 		currentButton = null
 		throw err
 	}
@@ -70,10 +70,11 @@ export async function playTTS(text: string, button: HTMLElement): Promise<void> 
  * Stop any currently playing TTS audio and reset button state.
  */
 export function stopTTS(): void {
-	if (speechSynthesis.speaking || speechSynthesis.pending) {
-		speechSynthesis.cancel()
+	if (currentAudio) {
+		currentAudio.pause()
+		currentAudio.currentTime = 0
+		currentAudio = null
 	}
-	currentUtterance = null
 	if (currentButton) {
 		currentButton.innerHTML = '<i class="fas fa-volume-up"></i>'
 		currentButton = null

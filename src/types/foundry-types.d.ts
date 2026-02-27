@@ -142,6 +142,8 @@ interface Actor extends FoundryDocument {
 	rollAbilityTest?: (ability: string, options?: Record<string, any>) => Promise<any>
 	rollAbilitySave?: (ability: string, options?: Record<string, any>) => Promise<any>
 	rollSkill?: (skill: string, options?: Record<string, any>) => Promise<any>
+	createEmbeddedDocuments(type: string, data: Record<string, any>[]): Promise<any[]>
+	deleteEmbeddedDocuments(type: string, ids: string[]): Promise<any[]>
 }
 
 interface ActiveEffect extends FoundryDocument {
@@ -264,6 +266,8 @@ interface RollTable extends FoundryDocument {
 interface Macro extends FoundryDocument {
 	type: string
 	command: string
+	img: string
+	execute(): Promise<any>
 }
 
 interface Folder extends FoundryDocument {
@@ -411,6 +415,27 @@ declare namespace JournalEntry {
 // ---- Folder Creation ----
 declare namespace Folder {
 	function create(data: { name: string; type: string; parent?: string | null; color?: string }): Promise<Folder>
+}
+
+// ---- Actor Creation ----
+declare namespace Actor {
+	function create(data: Record<string, any>): Promise<Actor>
+}
+
+// ---- Item Creation ----
+declare namespace Item {
+	function create(data: Record<string, any>): Promise<Item>
+}
+
+// ---- Scene Creation ----
+declare namespace Scene {
+	function create(data: Record<string, any>): Promise<Scene>
+}
+
+// ---- FilePicker ----
+declare namespace FilePicker {
+	function createDirectory(source: string, target: string, options?: Record<string, any>): Promise<any>
+	function upload(source: string, path: string, file: File, body?: Record<string, any>, options?: Record<string, any>): Promise<any>
 }
 
 // ---- ApplicationV2 (Foundry v13) ----
