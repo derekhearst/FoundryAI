@@ -20,7 +20,7 @@ import { execSync } from 'child_process'
 const rootDir = path.resolve(import.meta.dirname, '..')
 const args = process.argv.slice(2)
 const dryRun = args.includes('--dry-run')
-const version = args.find(a => !a.startsWith('--'))
+const version = args.find((a) => !a.startsWith('--'))
 
 if (!version) {
 	console.error('Usage: bun run publish <version> [--dry-run]')
@@ -72,9 +72,7 @@ execSync(`node ${path.resolve(rootDir, 'scripts/release.mjs')} ${version}`, {
 console.log('\n📡 Publishing to Foundry VTT Package Release API...')
 
 // Re-read module.json to get the latest values after release bumped them
-const moduleJson = JSON.parse(
-	fs.readFileSync(path.resolve(rootDir, 'module.json'), 'utf-8')
-)
+const moduleJson = JSON.parse(fs.readFileSync(path.resolve(rootDir, 'module.json'), 'utf-8'))
 
 const body = {
 	id: moduleJson.id,
@@ -95,17 +93,14 @@ console.log('\nRequest body:')
 console.log(JSON.stringify(body, null, 2))
 
 try {
-	const response = await fetch(
-		'https://foundryvtt.com/_api/packages/release_version/',
-		{
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				Authorization: token,
-			},
-			body: JSON.stringify(body),
-		}
-	)
+	const response = await fetch('https://foundryvtt.com/_api/packages/release_version/', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: token,
+		},
+		body: JSON.stringify(body),
+	})
 
 	const data = await response.json()
 
