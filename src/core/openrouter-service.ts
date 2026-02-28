@@ -383,20 +383,13 @@ export class OpenRouterService {
 	async listTTSModels(): Promise<ModelInfo[]> {
 		const models = await this.listModels()
 		return models.filter(
-			(m) =>
-				m.id.includes('tts') ||
-				m.id.includes('audio') ||
-				m.architecture?.modality?.includes('audio'),
+			(m) => m.id.includes('tts') || m.id.includes('audio') || m.architecture?.modality?.includes('audio'),
 		)
 	}
 
 	// ---- Image Generation ----
 
-	async generateImage(
-		prompt: string,
-		model?: string,
-		size?: string,
-	): Promise<{ url?: string; b64_json?: string }> {
+	async generateImage(prompt: string, model?: string, size?: string): Promise<{ url?: string; b64_json?: string }> {
 		if (!this.apiKey) throw new Error('OpenRouter API key not configured')
 
 		const body = {
@@ -438,22 +431,34 @@ export class OpenRouterService {
 
 	// ---- Text-to-Speech ----
 
-	async generateSpeech(
-		input: string,
-		voice?: string,
-		model?: string,
-	): Promise<ArrayBuffer> {
+	async generateSpeech(input: string, voice?: string, model?: string): Promise<ArrayBuffer> {
 		if (!this.apiKey) throw new Error('OpenRouter API key not configured')
 
+		const selectedVoice = voice || 'nova'
+		const selectedModel = model || this.ttsModel || 'openai/gpt-4o-mini-tts'
+
+		console.log(
+			`FoundryAI | API generateSpeech — model: ${selectedModel}, voice: ${selectedVoice}, input length: ${input.length}`,
+		)
+
+		// OpenRouter uses the chat/completions endpoint with modalities for audio output
 		const body = {
-			model: model || this.ttsModel || 'openai/tts-1',
-			input,
-			voice: voice || 'nova',
+			model: selectedModel,
+			messages: [
+				{
+					role: 'user',
+					content: `Read the following text aloud naturally:\n\n${input}`,
+				},
+			],
+			modalities: ['text', 'audio'],
+			audio: {
+				voice: selectedVoice,
+				format: 'wav',
+			},
+			stream: true,
 		}
 
-		console.log(`FoundryAI | API generateSpeech — model: ${body.model}, voice: ${body.voice}, input length: ${input.length}`)
-
-		const response = await fetch(`${OPENROUTER_BASE}/audio/speech`, {
+		const response = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
 			method: 'POST',
 			headers: this.headers,
 			body: JSON.stringify(body),
@@ -462,14 +467,65 @@ export class OpenRouterService {
 		if (!response.ok) {
 			const error = await response.json().catch(() => ({ message: response.statusText }))
 			console.error(`FoundryAI | TTS error (${response.status}):`, error)
-			throw new Error(
-				`TTS error (${response.status}): ${error.message || error.error?.message || 'Unknown error'}`,
-			)
+			throw new Error(`TTS error (${response.status}): ${error.message || error.error?.message || 'Unknown error'}`)
 		}
 
-		const audioBuffer = await response.arrayBuffer()
-		console.log(`FoundryAI | TTS audio generated: ${audioBuffer.byteLength} bytes`)
-		return audioBuffer
+		if (!response.body) {
+			throw new Error('No response body for TTS streaming request')
+		}
+
+		// Collect base64 audio chunks from the SSE stream
+		const reader = response.body.getReader()
+		const decoder = new TextDecoder()
+		let buffer = ''
+		const audioChunks: string[] = []
+
+		try {
+			while (true) {
+				const { done, value } = await reader.read()
+				if (done) break
+
+				buffer += decoder.decode(value, { stream: true })
+				const lines = buffer.split('\n')
+				buffer = lines.pop() || ''
+
+				for (const line of lines) {
+					const trimmed = line.trim()
+					if (!trimmed || trimmed.startsWith(':')) continue
+					if (!trimmed.startsWith('data: ')) continue
+
+					const data = trimmed.slice(6)
+					if (data === '[DONE]') break
+
+					try {
+						const chunk = JSON.parse(data)
+						const delta = chunk.choices?.[0]?.delta
+						if (delta?.audio?.data) {
+							audioChunks.push(delta.audio.data)
+						}
+					} catch {
+						// skip malformed chunks
+					}
+				}
+			}
+		} finally {
+			reader.releaseLock()
+		}
+
+		if (audioChunks.length === 0) {
+			throw new Error('No audio data received from TTS model')
+		}
+
+		// Decode base64 chunks into a single ArrayBuffer
+		const fullBase64 = audioChunks.join('')
+		const binaryString = atob(fullBase64)
+		const bytes = new Uint8Array(binaryString.length)
+		for (let i = 0; i < binaryString.length; i++) {
+			bytes[i] = binaryString.charCodeAt(i)
+		}
+
+		console.log(`FoundryAI | TTS audio generated: ${bytes.byteLength} bytes from ${audioChunks.length} chunks`)
+		return bytes.buffer
 	}
 
 	// ---- Connection Test ----

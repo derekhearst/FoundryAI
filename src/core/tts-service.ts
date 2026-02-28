@@ -30,12 +30,12 @@ export async function playTTS(text: string, button: HTMLElement): Promise<void> 
 
 	try {
 		const voice = getSetting('ttsVoice') || 'nova'
-		const model = getSetting('ttsModel') || 'openai/tts-1'
+		const model = getSetting('ttsModel') || 'openai/gpt-4o-mini-tts'
 
 		const audioBuffer = await openRouterService.generateSpeech(text, voice, model)
 
 		// Convert ArrayBuffer to a playable audio element
-		const blob = new Blob([audioBuffer], { type: 'audio/mpeg' })
+		const blob = new Blob([audioBuffer], { type: 'audio/wav' })
 		const url = URL.createObjectURL(blob)
 
 		const audio = new Audio(url)
