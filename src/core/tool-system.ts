@@ -7,13 +7,33 @@ import { collectionReader } from './collection-reader'
 import { getSetting } from '../settings'
 import { openRouterService } from './openrouter-service'
 import type { ToolDefinition, ToolCall } from './openrouter-service'
+import { getRootFolderId, getSubfolderId } from './folder-manager'
 
 // ---- Folder Permission Helpers ----
 // These check whether a document's folder is in the user's allowed list.
 // If no folders are selected for a type, nothing is accessible.
 
+/** Collect all FoundryAI-managed folder IDs (root + subfolders). */
+function getFoundryAIFolderIds(): string[] {
+	const ids: string[] = []
+	const root = getRootFolderId()
+	if (root) ids.push(root)
+	for (const key of ['notes', 'chatHistory', 'sessions', 'actors'] as const) {
+		const id = getSubfolderId(key)
+		if (id) ids.push(id)
+	}
+	return ids
+}
+
 function isJournalFolderAllowed(folderId: string | undefined | null): boolean {
 	const allowed = getSetting('journalFolders') || []
+
+	// Always allow FoundryAI-managed folders
+	if (folderId && getFoundryAIFolderIds().includes(folderId)) {
+		console.debug(`FoundryAI | isJournalFolderAllowed: folderId="${folderId}" is a FoundryAI folder, returning true`)
+		return true
+	}
+
 	if (allowed.length === 0) {
 		console.debug(`FoundryAI | isJournalFolderAllowed: no restrictions (allowed empty), returning true`)
 		return true // no restriction if none selected
@@ -96,7 +116,7 @@ const CORE_TOOLS: ToolDefinition[] = [
 		function: {
 			name: 'search_journals',
 			description:
-				'Semantically search through indexed journal entries (sourcebooks, notes, lore). Automatically returns the FULL content of each matching journal — no need to call get_journal afterwards. Always cite results using the provided uuidRef.',
+				'Semantically search through indexed journal entries (sourcebooks, notes, lore). Returns brief summaries of matching journals. Use get_journal with the documentId to retrieve the full content of a specific entry. Always cite results using the provided uuidRef.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -139,7 +159,8 @@ const CORE_TOOLS: ToolDefinition[] = [
 		type: 'function',
 		function: {
 			name: 'get_journal',
-			description: 'Get the full content of a specific journal entry by its ID.',
+			description:
+				'Get the full content of a specific journal entry by its ID. Use this after search_journals to retrieve the complete text of a journal you need to read.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -1573,19 +1594,11 @@ async function handleSearchJournals(query: string, maxResults?: number): Promise
 		}
 	}
 
-	// Auto-fetch full journal content for each unique result
-	const fullResults = uniqueResults.map((r) => {
+	// Return brief summaries — the AI should use get_journal for full content
+	const briefResults = uniqueResults.map((r) => {
 		const journalId = r.entry.documentId
-		const entry = game.journal?.get(journalId)
-		let fullContent: string | null = null
-
-		if (entry && isJournalFolderAllowed(entry.folder?.id)) {
-			fullContent = collectionReader.getJournalContent(journalId)
-		}
-
-		console.log(
-			`FoundryAI | search_journals: auto-fetched full content for "${r.entry.documentName}" (${journalId}): ${fullContent ? fullContent.length + ' chars' : 'not available'}`,
-		)
+		// Short excerpt: first 200 chars of matching chunk text
+		const excerpt = r.entry.text.slice(0, 200).trim() + (r.entry.text.length > 200 ? '…' : '')
 
 		return {
 			documentId: journalId,
@@ -1593,13 +1606,13 @@ async function handleSearchJournals(query: string, maxResults?: number): Promise
 			folder: r.entry.folderName,
 			relevance: Math.round(r.score * 100) / 100,
 			uuidRef: `@UUID[JournalEntry.${journalId}]{${r.entry.documentName}}`,
-			fullContent: fullContent || r.entry.text,
+			excerpt,
 		}
 	})
 
 	return JSON.stringify({
-		note: 'Full journal content is included below. ALWAYS cite sources using the uuidRef field when referencing this material.',
-		results: fullResults,
+		note: 'These are brief summaries. Use the get_journal tool with a documentId to retrieve the full content of any entry you need. ALWAYS cite sources using the uuidRef field.',
+		results: briefResults,
 	})
 }
 
@@ -1850,7 +1863,11 @@ function handleListFolders(type: string): string {
 
 	if (type === 'journal' || type === 'all') {
 		const all = collectionReader.getJournalFolders()
-		result.journalFolders = allowedJournalIds.length > 0 ? all.filter((f) => allowedJournalIds.includes(f.id)) : all
+		const foundryAIIds = getFoundryAIFolderIds()
+		result.journalFolders =
+			allowedJournalIds.length > 0
+				? all.filter((f) => allowedJournalIds.includes(f.id) || foundryAIIds.includes(f.id))
+				: all
 	}
 
 	if (type === 'actor' || type === 'all') {

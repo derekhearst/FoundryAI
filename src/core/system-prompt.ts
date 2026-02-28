@@ -6,7 +6,7 @@
 
 import { getSetting } from '../settings'
 import { collectionReader } from './collection-reader'
-import { getSubfolderId } from './folder-manager'
+import { getSubfolderId, getRootFolderId } from './folder-manager'
 
 const MODULE_ID = 'foundry-ai'
 
@@ -352,13 +352,23 @@ function getPlayerCharacters(): string[] {
 
 /**
  * Build a compact inventory of all journal entries — just IDs and names.
- * Only includes journals from folders the user has granted access to.
+ * Only includes journals from folders the user has granted access to,
+ * plus journals in FoundryAI-managed folders (Notes, Sessions, Chat History, Actors).
  */
 function getJournalInventory(): string | null {
 	if (!game.journal || game.journal.size === 0) return null
 
 	const allowedFolders = getSetting('journalFolders') || []
 	const allAllowedFolderIds = allowedFolders.length > 0 ? collectionReader.resolveWithChildren(allowedFolders) : null // null = no restriction
+
+	// Always include FoundryAI-managed folders
+	const foundryAIFolderIds: string[] = []
+	const rootId = getRootFolderId()
+	if (rootId) foundryAIFolderIds.push(rootId)
+	for (const key of ['notes', 'chatHistory', 'sessions', 'actors'] as const) {
+		const id = getSubfolderId(key)
+		if (id) foundryAIFolderIds.push(id)
+	}
 
 	const lines: string[] = ['## Available Journals']
 	lines.push(
@@ -369,7 +379,10 @@ function getJournalInventory(): string | null {
 	for (const entry of game.journal.values()) {
 		// Filter to allowed folders if restrictions are set
 		if (allAllowedFolderIds !== null) {
-			if (!entry.folder || !allAllowedFolderIds.includes(entry.folder.id)) continue
+			const folderId = entry.folder?.id
+			const isAllowed = folderId && allAllowedFolderIds.includes(folderId)
+			const isFoundryAI = folderId && foundryAIFolderIds.includes(folderId)
+			if (!isAllowed && !isFoundryAI) continue
 		}
 		lines.push(`- ${entry.name} (id: ${entry.id})`)
 		count++
